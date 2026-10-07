@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>팔팔마을</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri@latest/dist/galmuri.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <main id="stage">
+    <canvas id="game"></canvas>
+    <div id="hud">
+      <div class="time"><span id="sky">☀️</span><div><div id="date"></div><div id="clock"></div></div></div>
+      <div class="speed">
+        <button data-speed="0" title="일시정지 (Space)">⏸</button>
+        <button data-speed="1" title="1배속 (1)">▶</button>
+        <button data-speed="2" title="2배속 (2)">▶▶</button>
+        <button data-speed="4" title="4배속 (3)">4x</button>
+        <button data-speed="8" title="8배속 (4)">8x</button>
+      </div>
+      <div class="zoom"><button id="zoom-out" title="축소">－</button><button id="zoom-in" title="확대">＋</button></div>
+    </div>
+    <div id="event-banner" hidden></div>
+    <div id="alert-banner" hidden>🚨 납치 사건 발생! 정의겸 출동 중…</div>
+    <div id="toasts"></div>
+    <section id="log">
+      <button id="log-toggle">📜 마을 소식</button>
+      <ul id="log-list"></ul>
+    </section>
+    <div id="loading">마을을 짓는 중…</div>
+  </main>
+  <aside id="panel">
+    <header><h1>팔팔마을</h1><button id="reset" title="처음부터">↺</button></header>
+    <div id="cast"></div>
+    <div id="detail"></div>
+  </aside>
+</div>
+<div id="modal" hidden><div class="box"><div id="modal-body"></div><button id="modal-close">확인</button></div></div>
+
+<script src="js/util.js"></script>
+<script src="js/data.js"></script>
+<script src="js/world.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
