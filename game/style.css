@@ -140,3 +140,17 @@ button { font-family: inherit; cursor: pointer; }
 .rel em .st.love { background: #ffd6e2; color: #c0306a; }
 .rel em .st.some { background: #ffeaf0; color: #d0607a; }
 .rel { grid-template-columns: 22px 34px 110px 1fr; }
+
+.hbtns { display: flex; gap: 6px; }
+#law-btn { background: #f6ecd6; color: var(--ink); border: 0; border-radius: 4px; padding: 3px 8px; font-size: 12px; }
+#reset { font-size: 12px; }
+#modal .box { max-height: 86vh; overflow: auto; }
+#modal h3 { font-size: 14px; margin: 14px 0 6px; }
+.laws { padding-left: 20px; font-size: 12px; line-height: 1.6; }
+.laws li { margin-bottom: 6px; }
+.records { list-style: none; padding: 0; font-size: 12px; line-height: 1.5; }
+.records li { padding: 4px 0; border-bottom: 1px dashed #e2cfa6; }
+.records time { color: var(--ink-2); font-size: 11px; margin-right: 4px; }
+.mbtns { display: flex; gap: 8px; margin-top: 12px; }
+.mbtns button { flex: 1; }
+#modal-cancel { background: var(--paper-2); color: var(--ink); border: 2px solid var(--wood); border-radius: 4px; padding: 6px; font-size: 14px; }

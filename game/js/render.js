@@ -250,7 +250,7 @@ function drawOverlays(ctx, cx, cy, z, now) {
       const head = Gfx.heads[a.id];
       if (head) ctx.drawImage(head, x, sy, size, size);
       if (Gfx.selected === a) { ctx.strokeStyle = '#ffe45a'; ctx.lineWidth = 2 * dpr; ctx.strokeRect(x, sy, size, size); }
-      const mark = !a.act ? null : (a.act.key === 'sleep' || a.act.key === 'oversleep') ? '💤' : a.act.key === 'kidnapped' ? '😱' : a.act.key === 'date' ? '💕' : null;
+      const mark = !a.act ? null : (a.act.key === 'sleep' || a.act.key === 'oversleep') ? '💤' : a.act.key === 'kidnapped' ? '😱' : a.act.key === 'date' ? '💕' : a.act.key === 'jailed' ? '🔒' : a.act.key === 'essay' ? '📝' : null;
       if (mark) {
         ctx.font = `${11 * dpr}px sans-serif`; ctx.fillText(mark, x + size - 2 * dpr, sy + 2 * dpr);
       }

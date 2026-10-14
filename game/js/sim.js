@@ -1,5 +1,5 @@
 // 팔팔마을 simulation: clock, routines, chats, relationships/romance, scripted kidnap, random events, save.
-const SAVE_KEY = 'palpal-save-v2';
+const SAVE_KEY = 'palpal-save-v3';
 
 const Sim = {
   minute: START_MINUTE,
@@ -87,6 +87,7 @@ class Agent {
     this.act = null; this.inside = this.home; this.state = 'idle';
     this.chat = null; this.chatCooldown = 0; this.bubble = null;
     this.spotKey = null; this.dest = null; this.attended = new Set();
+    this.mem = []; this.knownPw = new Set([this.home.id]); this.errandDone = null;
   }
   level(k) { return levelFromXp(this.xp[k]).level; }
   totalLevel() { return Object.keys(SKILLS).reduce((s, k) => s + this.level(k), 0); }
@@ -101,9 +102,10 @@ class Agent {
     if (this.chat) return `💬 ${josa(this.chat.other.def.short, '과/와')} 대화 중`;
     if (!this.act) return '🤔 고민 중';
     const a = this.act.def;
-    if (this.state === 'walking' && !['kidnapped', 'arrested', 'run', 'evening_run', 'patrol', 'search', 'rescue', 'escort', 'kidnap_home', 'kidnap_hunt'].includes(this.act.key))
+    if (this.state === 'walking' && !['kidnapped', 'arrested', 'run', 'evening_run', 'patrol', 'search', 'rescue', 'escort', 'kidnap_home', 'kidnap_hunt', 'arrest_go', 'community_service'].includes(this.act.key))
       return `🚶 ${a.label} 하러 가는 중`;
     if (this.act.key === 'date' && this.act.partner) return `💕 ${josa(this.act.partner.def.short, '과/와')} 데이트 중`;
+    if (this.act.key === 'promise_meet' && this.act.partner) return `🤝 ${josa(this.act.partner.def.short, '과/와')} 약속 지키는 중`;
     return `${a.emoji} ${a.label}`;
   }
 
@@ -127,12 +129,19 @@ class Agent {
       const ev = Sim.activeEvent;
       if (ev && !this.attended.has(ev.uid) && rand() < 0.75) { this.attended.add(ev.uid); return this.startActivity('event'); }
     }
-    if (block.a) return this.startActivity(block.a, { until: blockEnd(block), block });
-    let key = weightedPick(block.p);
-    if (key === this.lastAct && Object.keys(block.p).length > 1 && rand() < 0.5) key = weightedPick(block.p);
+    if (block.a) {
+      // an errand block runs once a day; if it is already done, rest until the next block
+      if (ACTIVITIES[block.a].errand && this.errandDone === this.blockKey(block)) return this.startActivity('home_relax', { block, cap: blockEnd(block) });
+      return this.startActivity(block.a, { until: blockEnd(block), block });
+    }
+    if (lawFreeTime(this)) { if (this.act) this.act.block = block; return; }
+    const weights = memBoost(this, block.p);
+    let key = weightedPick(weights);
+    if (key === this.lastAct && Object.keys(weights).length > 1 && rand() < 0.5) key = weightedPick(weights);
     this.startActivity(key, { block, cap: blockEnd(block) });
   }
   busyBlock(block) { return !!(block.a && ACTIVITIES[block.a].busy); }
+  blockKey(block) { return `${dayOf(Sim.minute)}:${this.def.routine.indexOf(block)}`; }
 
   nextWake() {
     for (let m = Sim.minute + 10; m < Sim.minute + 1440; m += 10) if (currentBlock(this.def, m)) return m;
@@ -219,19 +228,21 @@ class Agent {
     const a = this.act;
     this.state = 'doing';
     if (!a) return;
-    if (a.inside) { this.inside = a.inside; if (a.friend) this.visitStart(a.friend); }
+    if (a.inside) { this.inside = a.inside; if (a.friend) this.visitStart(a.friend); if (a.inside === this.home) lawOwnerHome(this); }
     if (a.face === 'center' && a.eventCenter) this.dir = faceToward(this, a.eventCenter.x, a.eventCenter.y);
     else if (a.face) this.dir = a.face;
     if (a.partner && !a.inside) this.dir = faceToward(this, a.partner.tx, a.partner.ty);
     if (!a.counted) {
       a.counted = true;
       if (a.def.stat) this.stat(a.def.stat);
-      if (a.key === 'school_class' && hourOf(Sim.minute) > 9) {
+      if (a.key === 'school_class' && hourOf(Sim.minute) > 9 && hourOf(Sim.minute) < 12) {
         this.stat('late');
         logTown(`⏰ ${josa(this.def.name, '이/가')} 또 지각했다! (${clockStr(Sim.minute)} 도착)`, this.id, true);
         this.note('지각…'); this.mood = clamp(this.mood - 8, 0, 100);
       }
       if (a.key === 'beer' && rand() < 0.3) this.say('…크으. 🍺');
+      lawOnArrive(this);
+      memOnArrive(this);
       if (a.key === 'go_home_shut') {
         this.act = null;
         this.startActivity('shut_in', { until: (dayOf(Sim.minute)) * 1440, noMove: true });
@@ -300,6 +311,8 @@ class Agent {
     if (!this.act) return;
     if (this.act.key === 'meetup') endMeetup(this);
     if (this.act.key === 'commute') this.onReturnFromWork();
+    if (this.act.def.errand && this.act.block) this.errandDone = this.blockKey(this.act.block);
+    if (this.act.key === 'jailed') { logTown(`🔓 ${josa(this.def.name, '이/가')} 하루 만에 유치장에서 풀려났다`, this.id, true); this.note('유치장에서 풀려남'); }
     this.releaseSpot();
     this.act = null; this.state = 'idle';
   }
@@ -397,34 +410,78 @@ function partnerOf(a) {
 function romanceAfterChat(a, b, boost = 1) {
   if (!adult(a) || !adult(b)) return;
   const k = relKey(a, b), v = a.rel[b.id] || 0, st = Sim.status[k];
-  if (!st && v >= 45 && !partnerOf(a) && !partnerOf(b) && rand() < 0.25 * boost) {
+  if (st === '연인') return;
+  const pa = partnerOf(a), pb = partnerOf(b);
+  const taken = [a, b].filter((x) => partnerOf(x));
+  if (!st && v >= 40 && rand() < 0.3 * boost * (taken.length ? 0.5 : 1)) {
     Sim.status[k] = '썸';
-    logTown(`💓 ${josa(a.def.name, '과/와')} ${b.def.name} 사이에 묘한 기류가 흐른다…`, a.id, true);
-  } else if (st === '썸' && v >= 60 && rand() < 0.3 * boost) {
+    if (taken.length) {
+      const who = taken.map((x) => `${x.def.short}(연인: ${partnerOf(x).def.short})`).join(', ');
+      logTown(`😳 ${josa(a.def.name, '과/와')} ${b.def.name} 사이에 묘한 기류가… 그런데 ${who}…?!`, a.id, true);
+      for (const x of taken) { x.stat('cheats'); memAdd(x, { kind: 'secret', with: (x === a ? b : a).id, text: `${josa((x === a ? b : a).def.short, '과/와')} 몰래 썸 타는 중 🤫` }); }
+    } else logTown(`💓 ${josa(a.def.name, '과/와')} ${b.def.name} 사이에 묘한 기류가 흐른다…`, a.id, true);
+  } else if (st === '썸' && v >= 55 && rand() < 0.35 * boost) {
     const [from, to] = rand() < 0.5 ? [a, b] : [b, a];
     from.stat('confess');
     const p = clamp((v - 55) / 40 + from.level('charm') * 0.03, 0.1, 0.9);
+    from.say('저… 좋아해요! 💌', 4);
     if (rand() < p) {
+      // 마을 절대 규칙: 연인은 한 명만 -> 기존 연인과 먼저 헤어진다
+      for (const x of [from, to]) { const old = partnerOf(x); if (old) breakUp(x, old, `${x === from ? to.def.short : from.def.short}에게 환승`); }
       Sim.status[k] = '연인';
-      from.say('저… 좋아해요! 💌', 4); setTimeout(() => to.say('…저도요 ❤️', 4), 900);
+      setTimeout(() => to.say('…저도요 ❤️', 4), 900);
       logTown(`💘 ${josa(from.def.name, '이/가')} ${to.def.name}에게 고백했다… 성공! 두 사람은 연인이 되었다!`, from.id, true);
       from.note(`${to.def.short}에게 고백 성공 ❤️`); to.note(`${from.def.short}의 고백을 받아줌 ❤️`);
+      for (const [x, y] of [[from, to], [to, from]]) if (x.home.owner === x.id) y.knownPw.add(x.home.id);
+      newsAll([from, to], `${josa(from.def.short, '과/와')} ${josa(to.def.short, '이/가')} 사귄대요 💘`, null, false);
+      for (const x of [from, to]) memRemoveSecret(x, (x === from ? to : from).id);
     } else {
       delete Sim.status[k];
       changeRel(a, b, -12);
-      from.say('저… 좋아해요! 💌', 4); setTimeout(() => to.say('미안해요… 🙏', 4), 900);
+      setTimeout(() => to.say('미안해요… 🙏', 4), 900);
       logTown(`💔 ${josa(from.def.name, '이/가')} ${to.def.name}에게 고백했지만… 거절당했다`, from.id, true);
       from.mood = clamp(from.mood - 25, 0, 100);
+      memAdd(from, { kind: 'love', with: to.id, text: `${to.def.short}에게 고백했다가 차임 💔` });
+    }
+  }
+}
+
+function breakUp(x, y, reason) {
+  delete Sim.status[relKey(x, y)];
+  changeRel(x, y, -25);
+  x.stat('breakups'); y.stat('breakups');
+  logTown(`💔 ${josa(x.def.name, '과/와')} ${josa(y.def.name, '은/는')} 헤어졌다 (${reason})`, x.id, true);
+  newsAll([x, y], `${josa(x.def.short, '과/와')} ${josa(y.def.short, '이/가')} 헤어졌대요 (${reason})`, null, false);
+  for (const p of [x, y]) if (p.home.owner === p.id && rand() < 0.7) changePassword(p, '헤어져서');
+}
+
+// 바람 발각: a partner may notice a secret 썸
+function cheatCheck() {
+  for (const [k, st] of Object.entries(Sim.status)) {
+    if (st !== '썸') continue;
+    const [a, b] = k.split('|').map((id) => Sim.byId[id]);
+    for (const x of [a, b]) {
+      const p = partnerOf(x);
+      if (!p || p === a || p === b || rand() > 0.25) continue;
+      const other = x === a ? b : a;
+      logTown(`😡 ${josa(p.def.name, '이/가')} ${x.def.name}의 바람(${other.def.short})을 눈치챘다!`, p.id, true);
+      changeRel(p, x, -30); changeRel(p, other, -15);
+      delete Sim.status[k];
+      memAdd(p, { kind: 'love', with: x.id, text: `${josa(x.def.short, '이/가')} ${josa(other.def.short, '과/와')} 바람피운 걸 알게 됨 😡` });
+      if (rand() < 0.5) breakUp(p, x, '바람');
+      else logTown(`🥲 ${josa(p.def.name, '은/는')} 이번 한 번만 용서해주기로 했다`, p.id);
+      break;
     }
   }
 }
 
 function dailyRomance() {
-  Sim.dates = [];
+  Sim.dates = Sim.dates.filter((d) => d.promise && d.at > Sim.minute);
+  cheatCheck();
   // random encounters between adults (any age/gender combination)
   const adults = Sim.agents.filter(adult);
   for (let n = 0; n < 2; n++) {
-    if (rand() > 0.45) continue;
+    if (rand() > 0.65) continue;
     const a = pick(adults), b = pick(adults);
     if (a === b) continue;
     const base = (dayOf(Sim.minute) - 1) * 1440;
@@ -436,7 +493,7 @@ function dailyRomance() {
     if (rand() < 0.05) {
       changeRel(a, b, -15);
       logTown(`💢 ${josa(a.def.name, '과/와')} ${josa(b.def.name, '이/가')} 사소한 일로 다퉜다`, a.id, true);
-      if ((a.rel[b.id] || 0) < 40) { delete Sim.status[k]; logTown(`💔 ${josa(a.def.name, '과/와')} ${josa(b.def.name, '은/는')} 결국 헤어졌다…`, a.id, true); }
+      if ((a.rel[b.id] || 0) < 40) breakUp(a, b, '다툼 끝에');
       continue;
     }
     if (rand() < 0.6) {
@@ -469,6 +526,7 @@ function endMeetup(a) {
 }
 
 function startDate(d) {
+  if (d.promise) return startPromise(d);
   if (d.meet) return startMeetup(d);
   const { a, b } = d;
   for (const x of [a, b]) if (x.busy || !x.awake() || x.chat) return false;
@@ -522,25 +580,29 @@ function tryChats() {
     const rel = a.rel[b.id] || 0;
     const chance = 0.18 * (extro(a, b) + extro(b, a)) + rel / 300;
     if (rand() > chance) { a.chatCooldown = b.chatCooldown = 8; continue; }
-    let script;
-    const flirter = [a, b].find((x) => x.def.flirty);
+    let script, after = null;
+    const flirter = [a, b].find((x) => adult(x) && (x.def.flirty ? rand() < 0.5 : x.level('charm') >= 3 && rand() < 0.08));
     const target = flirter && (flirter === a ? b : a);
-    if (flirter && target.def.gender === 'F' && adult(target) && rand() < 0.5) {
+    if (flirter && adult(target) && (!flirter.def.flirty || target.def.gender === 'F')) {
       flirter.stat('flirts');
       const v = target.rel[flirter.id] || 0;
       const resp = v >= 45 ? pick(['😳 에이~', '생각해볼게요 ㅎㅎ', '…귀엽네요 ㅋㅋ']) : pick(['…네? 😅', '근무나 하세요~', '하하… 😅 (뒷걸음)']);
-      script = [[flirter, greeting()], [target, greeting()], [flirter, pick(flirter.def.flirtLines)], [target, resp]];
-      logTown(`😏 ${josa(flirter.def.name, '이/가')} ${target.def.name}에게 플러팅을 시도했다…`, flirter.id);
+      const lines = flirter.def.flirtLines || ['오늘 좀 멋진데요? 😏', '혹시 시간 있어요?', '같이 밥 먹을래요? ㅎㅎ'];
+      script = [[flirter, greeting()], [target, greeting()], [flirter, pick(lines)], [target, resp]];
+      const taken = partnerOf(flirter) ? ' (연인 있는데?!)' : '';
+      logTown(`😏 ${josa(flirter.def.name, '이/가')} ${target.def.name}에게 플러팅을 시도했다…${taken}`, flirter.id);
+      after = () => romanceAfterChat(flirter, target, 1.5);
     } else {
-      script = [[a, greeting()], [b, greeting()], [a, lineOf(a, b)], [b, replyOf(b, a)], [b, lineOf(b, a)], [a, replyOf(a, b)]];
+      ({ script, after } = buildChat(a, b));
     }
     a.startChat(b, true); b.startChat(a, false);
-    a.chat.script = script;
+    a.chat.script = script; a.chat.after = after;
     a.path = []; b.path = [];
   }
 }
 
 function endChat(a, b) {
+  if (a.chat && a.chat.after) a.chat.after();
   let gain = 3 + (a.level('social') + b.level('social')) * 0.35;
   if (a.def.beloved || b.def.beloved) gain += 2;
   changeRel(a, b, gain);
@@ -561,52 +623,80 @@ function insideSocial(dt) {
   if (Sim._insideAcc < 30) return;
   Sim._insideAcc = 0;
   const groups = {};
-  for (const a of Sim.agents) if (a.inside && !a.inside.virtual && a.act && !['sleep', 'oversleep', 'kidnapped', 'kidnapper_hide', 'interrogate'].includes(a.act.key)) (groups[a.inside.id] ||= []).push(a);
+  for (const a of Sim.agents) if (a.inside && !a.inside.virtual && a.act && !['sleep', 'oversleep', 'kidnapped', 'kidnapper_hide', 'interrogate', 'jailed', 'essay'].includes(a.act.key)) (groups[a.inside.id] ||= []).push(a);
   for (const [bid, list] of Object.entries(groups)) {
     if (list.length < 2) continue;
     for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
       changeRel(list[i], list[j], list[i].def.beloved || list[j].def.beloved ? 2 : 1.2);
       romanceAfterChat(list[i], list[j], 0.15);
-      if (rand() < 0.12) logTown(`${World.buildings[bid].name}에서 ${josa(list[i].def.short, '과/와')} ${josa(list[j].def.short, '이/가')} 이야기를 나눴다`, list[i].id);
+      // indoor conversations also create memories (promises, recommendations, gossip, passwords)
+      if (rand() < 0.3) {
+        const t = buildChat(list[i], list[j]);
+        if (t.after) {
+          t.after();
+          if (rand() < 0.5) logTown(`💬 ${World.buildings[bid].name}에서 ${t.script[2][0].def.short}: "${t.script[2][1]}"`, t.script[2][0].id);
+        }
+      } else if (rand() < 0.12) logTown(`${World.buildings[bid].name}에서 ${josa(list[i].def.short, '과/와')} ${josa(list[j].def.short, '이/가')} 이야기를 나눴다`, list[i].id);
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Kidnap scenario: 조이준 -> 곽현지, 정의겸 rescues the same day, then releases him
+// Kidnap scenario: 조이준 can target anyone (곽현지 most likely). 정의겸 rescues the same day and
+// (being soft-hearted) releases him. Trying to kidnap 정의겸 himself = instant arrest + 1 day in jail.
 // ---------------------------------------------------------------------------
+const KIDNAP_WEIGHT = { gwak_hyunji: 6 };
+function kidnapCandidates(I) {
+  return Sim.agents.filter((a) => a !== I && a.act && !a.chat && !a.scripted && a.awake() && !(a.inside && a.inside.virtual)
+    && !['sleep', 'oversleep', 'commute', 'shut_in'].includes(a.act.key));
+}
+
 function tickKidnap() {
-  const I = Sim.byId.jo_ijun, H = Sim.byId.gwak_hyunji, U = Sim.byId.jung_uigyeom;
+  const I = Sim.byId.jo_ijun, U = Sim.byId.jung_uigyeom;
   const h = hourOf(Sim.minute);
   const K = Sim.kid;
   if (!K) {
     if (!Sim.dayVars.kidnap || Sim.dayVars.kidnapDone) return;
     if (h < 16 || h > 16.6) return;
     if (!I.act || I.act.key !== 'school_revisit' || I.state !== 'doing' || I.chat) return;
-    if (!H.act || H.chat || ['shut_in', 'sick', 'sleep'].includes(H.act.key)) return;
+    const cands = kidnapCandidates(I);
+    if (!cands.length) return;
+    const V = Sim.byId[weightedPick(Object.fromEntries(cands.map((c) => [c.id, KIDNAP_WEIGHT[c.id] || 1])))];
     Sim.dayVars.kidnapDone = true;
-    Sim.kid = { phase: 'hunt', cop: 'idle', t0: Sim.minute };
+    Sim.kid = { phase: 'hunt', cop: 'idle', t0: Sim.minute, v: V };
     I.script('kidnap_hunt');
-    I.walkTo(H.inside ? H.inside.door.x : H.tx, H.inside ? H.inside.door.y : H.ty);
-    I.say('허허… 계획대로군 🤫', 3);
+    I.walkTo(V.inside ? V.inside.door.x : V.tx, V.inside ? V.inside.door.y : V.ty);
+    I.say(V === U ? '허허… 오늘은 큰 물고기다 🤫' : '허허… 계획대로군 🤫', 3);
     return;
   }
-  // abort / safety at day end
+  const V = K.v;
   if (h >= 23.8 && K.phase !== 'done') return resolveKidnap(true);
 
   if (K.phase === 'hunt') {
-    const tgt = H.inside ? H.inside.door : { x: H.tx, y: H.ty };
+    const tgt = V.inside ? V.inside.door : { x: V.tx, y: V.ty };
     if (I.state !== 'walking' && Math.abs(I.tx - tgt.x) + Math.abs(I.ty - tgt.y) > 1) I.walkTo(tgt.x, tgt.y);
     if (Math.abs(I.tx - tgt.x) + Math.abs(I.ty - tgt.y) <= 1 && I.state !== 'walking') {
-      if (H.inside) { H.inside = null; H.tx = tgt.x; H.ty = tgt.y; H.px = tgt.x * TILE + 8; H.py = tgt.y * TILE + 8; }
-      H.script('kidnapped'); H.act.def = { ...ACTIVITIES.kidnapped, follower: true };
-      H.say('어?! 뭐예요?! 😱', 3); I.say('허허, 잠깐 같이 가자~', 3);
+      if (V.inside) { V.inside = null; V.tx = tgt.x; V.ty = tgt.y; V.px = tgt.x * TILE + 8; V.py = tgt.y * TILE + 8; }
+      if (V === U) {
+        // 제5조: 경찰 납치 미수 -> 즉시 체포, 유치장 1일
+        I.say('허허, 경찰 양반 잠깐 같이…', 2.5); U.say('…네? 이거 납치죠? 체포합니다!! 👮', 3);
+        I.script('arrested'); I.act.def = { ...ACTIVITIES.arrested, follower: true };
+        const police = World.buildings.police;
+        U.script('escort', { target: police.door, enter: police });
+        I.stat('kidnaps'); U.stat('arrests');
+        logTown(`🤦 ${josa(I.def.name, '이/가')} ${josa(U.def.name, '을/를')} 납치하려다 그 자리에서 체포됐다! (팔팔법 제5조)`, I.id, true);
+        newsAll([I, U], `${josa(I.def.short, '이/가')} 의겸 경위를 납치하려다 바로 잡혀갔대요`, I.id, true);
+        lawRecord('kidnap_cop', I, U, null, '유치장 1일');
+        K.phase = 'jail_escort';
+        return;
+      }
+      V.script('kidnapped'); V.act.def = { ...ACTIVITIES.kidnapped, follower: true };
+      V.say('어?! 뭐예요?! 😱', 3); I.say('허허, 잠깐 같이 가자~', 3);
       I.script('kidnap_home'); I.act.inside = I.home; I.walkTo(I.home.door.x, I.home.door.y);
-      H.stat('kidnapped'); I.stat('kidnaps');
-      logTown(`🚨 ${josa(I.def.name, '이/가')} ${josa(H.def.name, '을/를')} 납치했다!`, I.id, true);
-      H.note('조이준에게 납치당함 😱'); I.note('계획 실행 🤫');
+      V.stat('kidnapped'); I.stat('kidnaps');
+      logTown(`🚨 ${josa(I.def.name, '이/가')} ${josa(V.def.name, '을/를')} 납치했다!`, I.id, true);
+      V.note('조이준에게 납치당함 😱'); I.note('계획 실행 🤫');
       K.phase = 'carry';
-      // the cop gets the report… and goes somewhere else first
       const delay = randInt(20, 150);
       K.searchUntil = Math.min(Sim.minute + delay, (dayOf(Sim.minute) - 1) * 1440 + 22.5 * 60);
       U.script('search');
@@ -614,9 +704,19 @@ function tickKidnap() {
       logTown(`📞 신고 접수! ${josa(U.def.name, '이/가')} 출동… 했는데 엉뚱한 곳으로 간다`, U.id);
     } else if (Sim.minute - K.t0 > 120) return resolveKidnap(false, true);
   }
+  if (K.phase === 'jail_escort') {
+    follow(I, U);
+    if (U.inside === World.buildings.police && I.inside === World.buildings.police) {
+      I.script('jailed', { inside: U.inside, dur: 1440 });
+      I.note('경찰 납치 미수로 유치장 1일 🔒');
+      U.act = null; U.state = 'idle';
+      Sim.kid = null;
+    }
+    return;
+  }
   if (K.phase === 'carry') {
-    follow(H, I);
-    if (I.inside === I.home && H.inside === I.home) { K.phase = 'held'; I.script('kidnapper_hide', { inside: I.home }); }
+    follow(V, I);
+    if (I.inside === I.home && V.inside === I.home) { K.phase = 'held'; I.script('kidnapper_hide', { inside: I.home }); }
   }
   if (K.cop === 'search') {
     if (U.state !== 'walking') { const s = pick(World.spots.wander); U.walkTo(s.x, s.y); }
@@ -626,16 +726,17 @@ function tickKidnap() {
     }
   }
   if (K.cop === 'rescue' && K.phase === 'held' && U.state !== 'walking' && U.tx === I.home.door.x && U.ty === I.home.door.y) {
-    for (const x of [I, H]) { x.inside = null; x.tx = U.tx; x.ty = U.ty; x.px = U.px; x.py = U.py; }
-    H.script('go_home_shut');
-    H.say('…집에 갈래요. 😤', 3);
+    for (const x of [I, V]) { x.inside = null; x.tx = U.tx; x.ty = U.ty; x.px = U.px; x.py = U.py; }
+    sendVictimHome(V);
     I.script('arrested'); I.act.def = { ...ACTIVITIES.arrested, follower: true };
     const police = World.buildings.police;
     U.script('escort', { target: police.door, enter: police });
     U.stat('arrests');
     U.say('정의의 이름으로! 체포합니다! 👮', 3);
-    logTown(`👮 ${josa(U.def.name, '이/가')} ${josa(I.def.name, '을/를')} 체포하고 ${josa(H.def.name, '을/를')} 구출했다!`, U.id, true);
-    U.note('납치범 체포! 현지 구출'); H.note('정의겸이 구해줌');
+    logTown(`👮 ${josa(U.def.name, '이/가')} ${josa(I.def.name, '을/를')} 체포하고 ${josa(V.def.name, '을/를')} 구출했다!`, U.id, true);
+    U.note(`납치범 체포! ${V.def.short} 구출`); V.note('정의겸이 구해줌');
+    newsAll([I, V, U], `${josa(I.def.short, '이/가')} ${josa(V.def.short, '을/를')} 납치했다가 의겸 경위한테 잡혔대요`, I.id, true);
+    lawRecord('kidnap', I, V, null, '체포 → 심문');
     K.phase = 'escort'; K.cop = 'escort';
   }
   if (K.phase === 'escort') {
@@ -650,18 +751,33 @@ function tickKidnap() {
   if (K.phase === 'interrogate' && (!U.act || U.act.key !== 'interrogate' || U.act.remaining <= 2)) resolveKidnap(false);
 }
 
+// 현지는 풀려나면 그날은 집 밖에 안 나온다; 다른 사람은 집에서 놀란 마음을 진정
+function sendVictimHome(V) {
+  if (V.id === 'gwak_hyunji') { V.script('go_home_shut'); V.say('…집에 갈래요. 😤', 3); }
+  else { V.script('shaken', { dur: 120 }); V.say('세상에… 집에 갈래요 😵', 3); }
+}
+
 function resolveKidnap(forced, aborted = false) {
-  const I = Sim.byId.jo_ijun, H = Sim.byId.gwak_hyunji, U = Sim.byId.jung_uigyeom;
+  const I = Sim.byId.jo_ijun, U = Sim.byId.jung_uigyeom, K = Sim.kid, V = K && K.v;
+  if (K && K.phase === 'jail_escort') {
+    // finish the arrest even across midnight
+    I.inside = World.buildings.police; U.inside = World.buildings.police;
+    I.script('jailed', { inside: I.inside, dur: 1440 }); U.act = null;
+    Sim.kid = null; return;
+  }
   if (!aborted) {
     U.stat('releases');
     logTown(`🙏 ${U.def.name}: "다음부턴 그러시면 안 돼요~" …${josa(I.def.name, '은/는')} 그대로 풀려났다 (마음이 여려서)`, U.id, true);
     U.say('다음부턴 안 돼요~ 😅', 3); I.say('허허, 물론이지! 😇', 3);
     I.note('풀려남 허허');
+    if (Law.records[0] && Law.records[0].type === 'kidnap' && Law.records[0].culprit === I.id) Law.records[0].outcome = '심문 후 석방 (마음이 여려서)';
   }
-  if (forced && H.act && H.act.key !== 'shut_in') {
-    H.inside = H.home; H.tx = H.home.door.x; H.ty = H.home.door.y; H.px = H.tx * TILE + 8; H.py = H.ty * TILE + 8;
-    H.act = null; H.startActivity('shut_in', { until: dayOf(Sim.minute) * 1440, noMove: true });
+  if (forced && V && V.act && ['kidnapped', 'go_home_shut'].includes(V.act.key)) {
+    V.inside = V.home; V.tx = V.home.door.x; V.ty = V.home.door.y; V.px = V.tx * TILE + 8; V.py = V.ty * TILE + 8;
+    V.act = null;
+    if (V.id === 'gwak_hyunji') V.startActivity('shut_in', { until: dayOf(Sim.minute) * 1440, noMove: true });
   }
+  if (aborted && V && V.act && V.act.key === 'kidnapped') V.act = null;
   for (const x of [I, U]) { x.act = null; x.state = 'idle'; }
   Sim.kid = null;
 }
@@ -784,6 +900,7 @@ function simTick(realDt) {
     if (dayOf(Sim.minute) !== Sim.day) newDay();
     tickEvents();
     tickKidnap();
+    tickLaw();
     for (const a of Sim.agents) a.update(step);
     tryChats();
     insideSocial(step);
@@ -806,13 +923,15 @@ function initSim() {
     const k = relKey(a, b);
     a.rel[b.id] = init[k] ?? Math.round(4 + hash2(k.length, k.charCodeAt(3) + k.charCodeAt(9)) * 8);
   }
+  lawInit();
   newDay();
-  logTown(`🏘️ ${TOWN_NAME}에 오신 걸 환영합니다!`);
+  logTown(`🏘️ ${TOWN_NAME}에 오신 걸 환영합니다! 📜 팔팔법을 지켜주세요`);
 }
 
 function saveGame() {
+  if (Sim.resetting) return;
   const data = {
-    v: 2, savedAt: Date.now(), minute: Sim.minute, speed: Sim.speed, townLog: Sim.townLog.slice(0, 80), status: Sim.status, dayVars: Sim.dayVars, eventUid,
+    v: 3, savedAt: Date.now(), minute: Sim.minute, law: lawSave(), mem: memSave(), speed: Sim.speed, townLog: Sim.townLog.slice(0, 80), status: Sim.status, dayVars: Sim.dayVars, eventUid,
     agents: Sim.agents.map((a) => ({ id: a.id, xp: a.xp, energy: a.energy, mood: a.mood, rel: a.rel, stats: a.stats, diary: a.diary.slice(0, 20) })),
   };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable */ }
@@ -821,13 +940,14 @@ function saveGame() {
 function loadGame() {
   let data = null;
   try { data = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch (e) { data = null; }
-  if (!data || data.v !== 2) return null;
+  if (!data || data.v !== 3) return null;
   Sim.minute = data.minute; Sim.speed = data.speed ?? 1; Sim.townLog = data.townLog || []; Sim.status = data.status || {};
   eventUid = data.eventUid || 1;
   for (const s of data.agents) {
     const a = Sim.byId[s.id]; if (!a) continue;
     Object.assign(a, { xp: s.xp, energy: s.energy, mood: s.mood, rel: s.rel, stats: s.stats || {}, diary: s.diary || [] });
   }
+  lawLoad(data.law); memLoad(data.mem);
   Sim.day = 0; newDay(); Sim.dayVars = { ...Sim.dayVars, ...(data.dayVars || {}) };
   Sim.events = Sim.events.filter((e) => e.start > Sim.minute);
   Sim.dates = Sim.dates.filter((d) => d.at > Sim.minute);
@@ -857,6 +977,7 @@ function offlineProgress(realSec) {
 }
 
 function resetGame() {
+  Sim.resetting = true; // keep beforeunload from re-saving the old village
   try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ }
   location.reload();
 }

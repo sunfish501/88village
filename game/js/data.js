@@ -30,14 +30,14 @@ function xpForStartLevel(L) {
 
 // When each place is open: (weekday 0=월..6=일, hour) -> bool
 const OPEN_HOURS = {
-  cafe: (wd, h) => wd <= 4 && h >= 7.5 && h < 19,
+  cafe: (wd, h) => wd <= 4 && h >= 7.4 && h < 19,
   restaurant: (wd, h) => wd !== 0 && h >= 11 && h < 22,
   store: () => true,
   studycafe: () => true,
   police: () => true,
   gym: (wd, h) => h >= 6 && h < 22.5,
   hospital: (wd, h) => h >= 9 && h < 19,
-  school: (wd, h) => wd <= 4 && h >= 7.5 && h < 17,
+  school: (wd, h) => wd <= 4 && h >= 6.5 && h < 17,
 };
 
 // loc: building id ('home' = own house) or spot group name.
@@ -88,6 +88,19 @@ const ACTIVITIES = {
   gym_visit:    { label: '체육관 운동', emoji: '💪', loc: 'gym', inside: true, dur: [50, 90], energy: -0.06, xp: { body: 0.8 }, alt: 'river_walk' },
   visit:        { label: '이웃집 놀러가기', emoji: '🏠', loc: 'friend', inside: true, dur: [50, 90], mood: 0.12, xp: { social: 0.6 } },
 
+  takeout_coffee: { label: '출근길 커피 테이크아웃', emoji: '☕', loc: 'cafe', inside: true, busy: true, errand: true, dur: [6, 10], mood: 0.3, stat: 'coffee', alt: 'store_coffee' },
+  store_coffee: { label: '팔팔25 캔커피', emoji: '🥫', loc: 'store', inside: true, busy: true, errand: true, dur: [4, 6], mood: 0.1, stat: 'coffee' },
+  drop_by:      { label: '비번 아는 집에 잠깐 들르기', emoji: '🔑', inside: true, dur: [20, 40], mood: 0.05 },
+  sneak_in:     { label: '남의 집 앞을 기웃기웃…', emoji: '👀', dur: [3, 6] },
+  promise_meet: { label: '약속 지키는 중', emoji: '🤝', dur: [50, 80], mood: 0.2, xp: { social: 0.6 }, busy: true, sticky: true, stat: 'promises' },
+
+  // law & order (sticky)
+  arrest_go:    { label: '출동! 범인 잡으러 가는 중', emoji: '🚨', busy: true, sticky: true },
+  essay:        { label: '파출소에서 반성문 쓰는 중', emoji: '📝', loc: 'police', inside: true, busy: true, sticky: true, stat: 'essays' },
+  community_service: { label: '사회봉사 (광장 청소)', emoji: '🧹', loc: 'plaza', roam: true, busy: true, sticky: true, xp: { body: 0.3 }, stat: 'service' },
+  jailed:       { label: '유치장 신세', emoji: '🔒', loc: 'police', inside: true, busy: true, sticky: true, mood: -0.02, stat: 'jailed' },
+  shaken:       { label: '놀란 마음 진정시키는 중', emoji: '😵', loc: 'home', inside: true, busy: true, sticky: true, energy: 0.1 },
+
   // scripted (sticky: routine changes don't interrupt)
   kidnap_hunt:  { label: '…수상한 움직임', emoji: '🕵️', busy: true, sticky: true },
   kidnap_home:  { label: '"같이 가자~" 귀가 중', emoji: '😏', busy: true, sticky: true },
@@ -114,6 +127,7 @@ const CHARACTERS = [
   {
     id: 'han_gayun', name: '한가윤', short: '가윤', gender: 'F', age: 24, role: '팔팔카페 사장', traits: '밝음 · 외향형',
     home: 'h_gayun', extro: 1.3,
+    morality: 0.95, fav: { act: 'cafe_visit', line: '팔팔카페 신메뉴 꼭 먹어봐요!' }, items: ['원두 한 봉지', '카페 단골 쿠폰북'],
     skills: { cook: 3, social: 3, work: 2, charm: 3, body: 1, mind: 2 }, talent: { cook: 1.2, social: 1.3 },
     routine: [
       { d: 'weekday', f: 7, t: 7.6, a: 'breakfast' },
@@ -127,6 +141,7 @@ const CHARACTERS = [
   {
     id: 'ha_serin', name: '하세린', short: '세린', gender: 'F', age: 19, role: '팔팔고 3학년', traits: '까칠함 · 철벽 · 외향형',
     home: 'h_serin', extro: 1.1, minor: true,
+    morality: 0.85, fav: { act: 'store_shop', line: '팔팔25 삼각김밥 신상 맛있어요. 진짜임.' }, items: ['수능 문제집', '최애 포토카드'],
     skills: { mind: 3, social: 2, body: 1, cook: 1, work: 1, charm: 2 }, talent: { mind: 1.3 },
     routine: [
       { d: 'weekday', f: 7, t: 8.3, a: 'oversleep', if: 'serinLate' },
@@ -144,10 +159,12 @@ const CHARACTERS = [
   {
     id: 'han_seunghwa', name: '한승화', short: '승화', gender: 'M', age: 31, role: '회사원 (마을 밖 출근)', traits: '조용함 · 내향형 · 친해지면 수다',
     home: 'h_seunghwa', extro: 0.5, chattyWhenClose: true,
+    morality: 0.9, fav: { act: 'river_walk', line: '하천 산책로 밤에 걸으면 좋아요…' }, items: ['야식용 냉동 치킨', '회사 기밀(?) 서류'],
     skills: { work: 4, mind: 3, social: 1, body: 1, cook: 1, charm: 2 }, talent: { work: 1.3 },
     routine: [
-      { d: 'weekday', f: 7, t: 8.3, a: 'get_ready' },
-      { d: 'weekday', f: 8.3, t: 'seunghwaReturn', a: 'commute' },
+      { d: 'weekday', f: 7, t: 7.55, a: 'get_ready' },
+      { d: 'weekday', f: 7.55, t: 7.6, a: 'takeout_coffee' },
+      { d: 'weekday', f: 7.6, t: 'seunghwaReturn', a: 'commute' },
       { d: 'all', f: 22.5, t: 23.2, a: 'late_snack', if: 'seunghwaSnack' },
       { d: 'weekday', f: 'seunghwaReturn', t: 24, p: { home_relax: 6, river_walk: 1, plaza_walk: 1 } },
       { d: 'weekend', f: 10, t: 24.9, p: { home_relax: 4, plaza_walk: 1, restaurant_meal: 2, river_walk: 1, gym_visit: 1, store_shop: 1, visit: 1 } },
@@ -160,6 +177,7 @@ const CHARACTERS = [
   {
     id: 'jo_beomgi', name: '조범기', short: '범기', gender: 'M', age: 45, role: '팔팔식당 요리사', traits: '과묵함 · 내향형',
     home: 'h_beomgi', extro: 0.4,
+    morality: 0.9, fav: { act: 'restaurant_meal', line: '…돈까스. 먹으러 와.' }, items: ['비장의 돈까스 소스', '튀김 젓가락'],
     skills: { cook: 6, work: 3, body: 2, social: 1, mind: 2, charm: 2 }, talent: { cook: 1.3 },
     routine: [
       { d: 'notMon', f: 9, t: 10, a: 'breakfast' },
@@ -178,21 +196,26 @@ const CHARACTERS = [
   {
     id: 'gwak_hyunji', name: '곽현지', short: '현지', gender: 'F', age: 19, role: '팔팔고 체육 특기생', traits: 'ENTP · 즉흥적',
     home: 'h_hyunji', extro: 1.4, minor: true,
+    morality: 0.6, fav: { act: 'gym_visit', line: '체육관 같이 가요!! 개운함 ㄹㅇ' }, items: ['닭가슴살 한 박스', '줄넘기'],
     skills: { body: 5, social: 2, mind: 1, cook: 1, work: 1, charm: 2 }, talent: { body: 1.4 },
     routine: [
       { d: 'all', f: 6, t: 6.9, a: 'run' },
-      { d: 'all', f: 6.9, t: 7.3, a: 'chicken' },
-      { d: 'all', f: 7.3, t: 12, a: 'gym_train' },
-      { d: 'all', f: 12, t: 13, a: 'donkatsu' },
-      { d: 'all', f: 13, t: 20.5, a: 'gym_train' },
+      { d: 'all', f: 6.9, t: 6.95, a: 'chicken' },
+      { d: 'weekday', f: 6.95, t: 12, a: 'school_class' },
+      { d: 'all', f: 12, t: 12.05, a: 'donkatsu' },
+      { d: 'weekday', f: 12.05, t: 16, a: 'school_class' },
+      { d: 'weekday', f: 16, t: 20.5, a: 'gym_train' },
+      { d: 'weekend', f: 6.95, t: 12, a: 'gym_train' },
+      { d: 'weekend', f: 12.05, t: 20.5, a: 'gym_train' },
       { d: 'all', f: 20.5, t: 21.5, a: 'home_relax' },
     ],
-    lines: ['닭가슴살 먹을래요?!', '오늘 5km 뛰었어요 ㅋㅋ', '돈까스 최고!!', '아무 생각 없어요 히히', '같이 뛰실래요?'],
+    lines: ['닭가슴살 먹을래요?!', '오늘 5km 뛰었어요 ㅋㅋ', '돈까스 최고!!', '아무 생각 없어요 히히', '수업 끝나면 바로 체육관 ㄱㄱ'],
     replies: ['ㅋㅋㅋㅋ 몰라요!', '오 개좋아!', '그게 뭔데요?ㅋㅋ', '헐 ㅋㅋ'],
   },
   {
     id: 'jo_ijun', name: '조이준', short: '이준', gender: 'M', age: 67, role: '은퇴한 팔팔고 국어 교사', traits: 'ESTJ · 겉은 활발, 속은 치밀',
     home: 'h_ijun', extro: 1.2,
+    morality: 0.3, fav: { act: 'fountain', line: '허허, 분수대 앞이 명당이라네' }, items: ['정체불명의 리스트 노트', '오래된 국어 교과서'],
     skills: { mind: 5, social: 3, work: 2, body: 1, cook: 2, charm: 2 }, talent: { mind: 1.2 },
     routine: [
       { d: 'weekday', f: 6, t: 7.4, p: { plaza_walk: 1, river_walk: 1 } },
@@ -213,6 +236,7 @@ const CHARACTERS = [
   {
     id: 'hong_uijun', name: '홍의준', short: '의준', gender: 'M', age: 51, role: '팔팔25 사장', traits: 'ISFJ · 늘 웃는 얼굴',
     home: 'h_uijun', extro: 1.0, beloved: true,
+    morality: 1.0, fav: { act: 'store_shop', line: '팔팔25 1+1 행사 꼭 챙기세요~ 😊' }, items: ['편의점 1+1 쿠폰 뭉치', '가족 사진 액자'],
     skills: { work: 4, social: 4, body: 2, cook: 2, mind: 2, charm: 3 }, talent: { social: 1.3, work: 1.1 },
     routine: [
       { d: 'all', f: 4.5, t: 5, a: 'get_ready' },
@@ -226,6 +250,7 @@ const CHARACTERS = [
   {
     id: 'jung_uigyeom', name: '정의겸', short: '의겸', gender: 'M', age: 27, role: '팔팔파출소 경위', traits: 'ENFP · 열정 · 허당 · 마음 여림',
     home: 'police', extro: 1.4, flirty: true,
+    morality: 1.0, fav: { act: 'plaza_walk', line: '광장 순찰 같이 도실래요?! 😆' }, items: ['예비 경찰 모자', '연애 지침서'],
     skills: { body: 3, work: 1, social: 3, mind: 1, cook: 1, charm: 2 }, talent: { social: 1.2 },
     routine: [
       { d: 'all', f: 7, t: 7.5, a: 'skip_meal' },
@@ -251,6 +276,8 @@ const STAT_LABELS = {
   late: '⏰ 지각', kidnapped: '😱 납치당함', kidnaps: '🕵️ 납치', arrests: '🚔 범인 체포', releases: '🙏 범인 석방',
   beer: '🍺 퇴근 맥주', cupramen: '🍜 컵라면', donkatsu: '🍱 돈까스', chicken: '🍗 닭가슴살', overtime: '😩 야근',
   snack: '🍗 야식', flirts: '😏 플러팅', confess: '💌 고백', dates: '💕 데이트', hospital: '🏥 병원', store: '🍙 편의점 끼니',
+  coffee: '☕ 출근 커피', promises: '🤝 약속 지킴', promiseBroken: '😤 약속 펑크', crimes: '⚖️ 범죄', thefts: '🫳 절도', trespass: '🚪 무단출입',
+  essays: '📝 반성문', service: '🧹 사회봉사', jailed: '🔒 유치장', cheats: '💔 바람', breakups: '💔 이별', pwShared: '🔑 비번 알려줌',
 };
 
 const GREETINGS_DAY = ['안녕하세요!', '오, 반가워요!', '어디 가세요?', '날씨 좋네요~'];
@@ -264,3 +291,18 @@ function relLabel(v) {
   if (v >= 15) return '아는 사이';
   return '어색한 사이';
 }
+
+// 팔팔법 (shown in the law modal; enforced in law.js / sim.js)
+const PALPAL_LAWS = [
+  { no: '제1조', title: '비밀번호 출입', text: '모든 집과 건물에는 비밀번호가 있다. 주인이 없을 때 비밀번호를 모르는 사람은 들어갈 수 없다.' },
+  { no: '제2조', title: '무단출입 금지', text: '비밀번호 없이 남의 집에 들어가면 무단출입. 파출소에서 반성문 1시간.' },
+  { no: '제3조', title: '절도 금지', text: '비밀번호를 알더라도 물건을 훔치면 절도. 신고 시 정의겸 출동, 광장 청소 사회봉사 2시간.' },
+  { no: '제4조', title: '납치 금지', text: '납치는 중범죄. 그날 안에 구출·체포 후 심문. (담당 경찰 재량으로 석방될 수 있음)' },
+  { no: '제5조', title: '공무원 납치 미수', text: '경찰을 납치하려 하면 그 자리에서 체포, 유치장 1일.' },
+];
+const VILLAGE_RULES = [
+  '연인은 한 명만 가질 수 있다. 새 연인을 사귀려면 기존 연인과 먼저 헤어져야 한다.',
+  '꼬시는 건 자유다. 그래서 바람이 날 수도 있고, 들키면 큰 싸움이 난다.',
+  '연애는 성인끼리만, 나이·성별은 상관없다.',
+  '주민들은 들은 이야기를 기억하고, 약속·추천·소문은 나중에 행동으로 이어진다.',
+];

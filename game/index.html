@@ -32,17 +32,19 @@
     <div id="loading">마을을 짓는 중…</div>
   </main>
   <aside id="panel">
-    <header><h1>팔팔마을</h1><button id="reset" title="처음부터">↺</button></header>
+    <header><h1>팔팔마을</h1><div class="hbtns"><button id="law-btn" title="팔팔법">📜 팔팔법</button><button id="reset" title="마을 리셋 후 다시 시작">🔄 리셋</button></div></header>
     <div id="cast"></div>
     <div id="detail"></div>
   </aside>
 </div>
-<div id="modal" hidden><div class="box"><div id="modal-body"></div><button id="modal-close">확인</button></div></div>
+<div id="modal" hidden><div class="box"><div id="modal-body"></div><div class="mbtns"><button id="modal-cancel" hidden>취소</button><button id="modal-close">확인</button></div></div></div>
 
 <script src="js/util.js"></script>
 <script src="js/data.js"></script>
 <script src="js/world.js"></script>
 <script src="js/sim.js"></script>
+<script src="js/law.js"></script>
+<script src="js/memory.js"></script>
 <script src="js/render.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/main.js"></script>

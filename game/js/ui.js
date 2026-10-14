@@ -27,8 +27,12 @@ function initUI() {
   $('#zoom-in').addEventListener('click', () => zoomBy(1.25));
   $('#zoom-out').addEventListener('click', () => zoomBy(1 / 1.25));
   $('#log-toggle').addEventListener('click', () => $('#log').classList.toggle('collapsed'));
-  $('#reset').addEventListener('click', () => { if (confirm('마을을 처음부터 다시 시작할까요? 저장된 진행이 사라집니다.')) resetGame(); });
-  $('#modal-close').addEventListener('click', () => { $('#modal').hidden = true; });
+  $('#reset').addEventListener('click', () => openModal(
+    `<h2>🔄 마을 리셋</h2><p>팔팔마을을 처음부터 다시 시작할까요?</p><p><small>주민들의 성장, 관계, 연애, 기억, 비밀번호, 범죄 기록이 모두 초기화돼요.</small></p>`,
+    { confirm: '리셋하고 다시 시작', onConfirm: resetGame, cancel: true }));
+  $('#law-btn').addEventListener('click', showLaw);
+  $('#modal-close').addEventListener('click', () => { const f = UI.onConfirm; closeModal(); if (f) f(); });
+  $('#modal-cancel').addEventListener('click', closeModal);
   setSpeed(Sim.speed);
 }
 
@@ -104,6 +108,9 @@ function updateDetail() {
   const stats = Object.entries(a.stats).filter(([, v]) => v > 0).map(([k, v]) => `<span class="stat">${STAT_LABELS[k] || k} <b>${v}</b></span>`).join('') || '<small>아직 기록 없음</small>';
   const diary = a.diary.slice(0, 8).map((d) => `<li><time>${dayOf(d.t)}일 ${clockStr(d.t)}</time>${esc(d.text)}</li>`).join('') || '<li>아직 기록이 없어요</li>';
   const partner = partnerOf(a);
+  const MEM_ICON = { news: '🗣️', rec: '💡', tried: '✅', promise: '📅', promise_kept: '🤝', promise_broken: '😤', pw: '🔑', secret: '🤫', love: '💗' };
+  const mems = a.mem.slice(0, 8).map((m) => `<li><time>${dayOf(m.t)}일 ${clockStr(m.t)}</time>${MEM_ICON[m.kind] || '•'} ${esc(m.text)}${m.kind === 'rec' ? (m.done ? ' <small>(가봄)</small>' : ' <small>(가볼 예정)</small>') : ''}</li>`).join('') || '<li>아직 기억할 만한 대화가 없어요</li>';
+  const pws = [...a.knownPw].map((id) => World.buildings[id]).filter(Boolean).map((b) => `<span class="stat">🔑 ${esc(b.name)} <b>${Law.pw[b.id]}</b></span>`).join('');
   const html = `
     <div class="dh">
       <img src="../characters/portraits/${a.id}.png" alt="">
@@ -117,6 +124,8 @@ function updateDetail() {
     <h3>기록</h3><div class="stats">${stats}</div>
     <h3>스킬</h3><div class="skills">${skills}</div>
     <h3>관계</h3><div class="rels">${rels}</div>
+    <h3>🧠 기억 <small>대화에서 들은 것 → 나중에 행동</small></h3><ul class="diary">${mems}</ul>
+    <h3>🔑 아는 비밀번호</h3><div class="stats">${pws}</div>
     <h3>일기</h3><ul class="diary">${diary}</ul>`;
   if (html === UI.lastDetail) return;
   UI.lastDetail = html;
@@ -144,9 +153,35 @@ function toast(text) {
   while ($('#toasts').children.length > 4) $('#toasts').firstChild.remove();
 }
 
+function openModal(html, opts = {}) {
+  $('#modal-body').innerHTML = html;
+  $('#modal-close').textContent = opts.confirm || '확인';
+  $('#modal-cancel').hidden = !opts.cancel;
+  UI.onConfirm = opts.onConfirm || null;
+  $('#modal').hidden = false;
+}
+function closeModal() { $('#modal').hidden = true; UI.onConfirm = null; }
+
+const CRIME_LABEL = { theft: '🫳 절도', trespass: '🚪 무단출입', attempt: '🔒 무단출입 미수', kidnap: '🚨 납치', kidnap_cop: '🤦 경찰 납치 미수' };
+function showLaw() {
+  const laws = PALPAL_LAWS.map((l) => `<li><b>${l.no} ${esc(l.title)}</b><br>${esc(l.text)}</li>`).join('');
+  const rules = VILLAGE_RULES.map((r) => `<li>${esc(r)}</li>`).join('');
+  const recs = Law.records.slice(0, 12).map((r) => {
+    const c = Sim.byId[r.culprit], v = r.victim && Sim.byId[r.victim];
+    return `<li><time>${dayOf(r.t)}일 ${clockStr(r.t)}</time> ${CRIME_LABEL[r.type] || r.type} · <b>${c.def.short}</b>${v ? ` → ${v.def.short}` : ''}${r.item ? ` (${esc(r.item)})` : ''}<br><small>⚖️ ${esc(r.outcome)}</small></li>`;
+  }).join('') || '<li>아직 범죄 기록이 없어요. 평화로운 팔팔마을 🌷</li>';
+  const couples = Object.entries(Sim.status).map(([k, st]) => {
+    const [a, b] = k.split('|').map((id) => Sim.byId[id].def.short);
+    return `<span class="stat">${st === '연인' ? '❤️' : '💓'} ${a} · ${b} <b>${st}</b></span>`;
+  }).join('') || '<small>아직 없음</small>';
+  openModal(`<h2>📜 팔팔법</h2><ol class="laws">${laws}</ol>
+    <h3>🏘️ 마을 절대 규칙</h3><ul class="laws">${rules}</ul>
+    <h3>💞 연애 현황</h3><div class="stats">${couples}</div>
+    <h3>🚔 범죄 기록 ${Law.cases.length ? `<small>(처리 대기 ${Law.cases.length}건)</small>` : ''}</h3><ul class="records">${recs}</ul>`, { confirm: '닫기' });
+}
+
 function showOffline(result) {
   const rows = result.gains.filter((g) => g.levels)
     .map((g) => `<li><b>${g.name}</b> 스킬 +${g.levels}레벨</li>`).join('') || '<li>조용히 지나간 시간이었어요.</li>';
-  $('#modal-body').innerHTML = `<h2>🌙 자리를 비운 사이…</h2><p>마을에서 <b>${result.hours}시간</b>이 흘렀어요.</p><ul>${rows}</ul>`;
-  $('#modal').hidden = false;
+  openModal(`<h2>🌙 자리를 비운 사이…</h2><p>마을에서 <b>${result.hours}시간</b>이 흘렀어요.</p><ul>${rows}</ul>`);
 }
