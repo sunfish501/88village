@@ -15,6 +15,7 @@ const Sim = {
   status: {},        // "idA|idB" -> '썸' | '연인'
   kid: null,         // kidnap scenario state
   spotUse: new Map(),
+  aiPairT: {},       // last indoor AI conversation per pair
   onToast: null,
   day: 0,
 };
@@ -359,6 +360,15 @@ class Agent {
     const c = this.chat;
     c.t += dt;
     if (!c.starter) return;
+    if (c.ai === 'pending' && c.idx >= c.script.length) {
+      // greetings are done; wait (a little) for Claude to write the rest
+      if (performance.now() - c.aiStart > AI_CONFIG.waitMs) { c.script = c.fallback.script; c.after = c.fallback.after; c.ai = 'timeout'; c.t = c.idx * 2.2; }
+      else {
+        c.t = Math.min(c.t, c.idx * 2.2);
+        if (!c.waitBubble) { c.waitBubble = true; c.other.say('…🤔', 4); }
+        return;
+      }
+    }
     while (c.idx < c.script.length && c.t >= c.idx * 2.2) { const [who, line] = c.script[c.idx]; who.say(line); c.idx++; }
     if (c.t >= c.script.length * 2.2 + 1) endChat(this, c.other);
   }
@@ -597,12 +607,14 @@ function tryChats() {
     }
     a.startChat(b, true); b.startChat(a, false);
     a.chat.script = script; a.chat.after = after;
+    if (window.NpcAI && NpcAI.canRequest()) aiChat(a, b, script, after);
     a.path = []; b.path = [];
   }
 }
 
 function endChat(a, b) {
   if (a.chat && a.chat.after) a.chat.after();
+  if (a.chat && a.chat.isAI && a.chat.script[2] && rand() < 0.6) logTown(`🤖💬 ${a.chat.script[2][0].def.short}: "${a.chat.script[2][1]}"`, a.chat.script[2][0].id);
   let gain = 3 + (a.level('social') + b.level('social')) * 0.35;
   if (a.def.beloved || b.def.beloved) gain += 2;
   changeRel(a, b, gain);
@@ -618,6 +630,29 @@ function endChat(a, b) {
   }
 }
 
+// Claude writes this conversation (see ai.js); the rule-based script is the fallback
+function aiChat(a, b, fallbackScript, fallbackAfter) {
+  const c = a.chat;
+  c.ai = 'pending'; c.aiStart = performance.now();
+  c.fallback = { script: fallbackScript, after: fallbackAfter };
+  c.script = fallbackScript.slice(0, 2); c.after = null;
+  NpcAI.converse(a, b, placeName(a)).then((r) => {
+    if (a.chat !== c || c.ai !== 'pending') return;
+    if (r) { c.script = c.script.slice(0, 2).concat(r.lines); c.after = r.after; c.isAI = true; }
+    else { c.script = c.fallback.script; c.after = c.fallback.after; }
+    c.ai = 'done'; c.t = c.idx * 2.2;
+  });
+}
+function placeName(a) {
+  if (a.inside) return a.inside.name;
+  const t = World.t(a.tx, a.ty);
+  if (t === T.PAVE || t === T.FLOOR) return '중앙광장';
+  if (t === T.TRACK || t === T.STEP) return '하천 산책로';
+  if (t === T.FIELD) return '팔팔고 운동장';
+  if ([T.SIDEWALK, T.CROSSWALK, T.ASPHALT, T.BRIDGE].includes(t)) return '큰길 인도';
+  return '동네 골목길';
+}
+
 function insideSocial(dt) {
   Sim._insideAcc = (Sim._insideAcc || 0) + dt;
   if (Sim._insideAcc < 30) return;
@@ -630,7 +665,17 @@ function insideSocial(dt) {
       changeRel(list[i], list[j], list[i].def.beloved || list[j].def.beloved ? 2 : 1.2);
       romanceAfterChat(list[i], list[j], 0.15);
       // indoor conversations also create memories (promises, recommendations, gossip, passwords)
-      if (rand() < 0.3) {
+      const pk = relKey(list[i], list[j]);
+      if (window.NpcAI && Sim.minute - (Sim.aiPairT[pk] ?? -1e9) > 240 && NpcAI.canRequest(0.5)) {
+        Sim.aiPairT[pk] = Sim.minute; // one AI chat per pair per 4 game hours indoors
+        const x = list[i], y = list[j], bname = World.buildings[bid].name;
+        NpcAI.converse(x, y, bname).then((r) => {
+          if (!r) return;
+          r.after();
+          const [w, t] = r.lines[Math.min(1, r.lines.length - 1)];
+          logTown(`🤖💬 ${bname}에서 ${w.def.short}: "${t}"`, w.id);
+        });
+      } else if (rand() < 0.3) {
         const t = buildChat(list[i], list[j]);
         if (t.after) {
           t.after();

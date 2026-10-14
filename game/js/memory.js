@@ -41,29 +41,37 @@ function topicGossip(x, y) {
   if (!m || rand() > 0.6) return null;
   return {
     script: [[x, greeting()], [y, greeting()], [x, `그거 들었어요? ${m.text}`], [y, pick(['헐 진짜요?!', '…대박', '말도 안 돼', '어머어머'])]],
-    after: () => {
-      memAdd(y, { kind: 'news', nid: m.nid, about: m.about, text: m.text, bad: m.bad, from: x.id });
-      if (m.bad && m.about && Sim.byId[m.about] && m.about !== y.id) changeRel(y, Sim.byId[m.about], -4);
-      if (rand() < 0.4) logTown(`🗣️ ${josa(x.def.short, '이/가')} ${y.def.short}에게 소문을 전했다: "${m.text}"`, x.id);
-    },
+    after: () => doGossip(x, y, m),
   };
+}
+function doGossip(x, y, m) {
+  if (memHasNews(y, m.nid)) return;
+  memAdd(y, { kind: 'news', nid: m.nid, about: m.about, text: m.text, bad: m.bad, from: x.id });
+  if (m.bad && m.about && Sim.byId[m.about] && m.about !== y.id) changeRel(y, Sim.byId[m.about], -4);
+  if (rand() < 0.4) logTown(`🗣️ ${josa(x.def.short, '이/가')} ${y.def.short}에게 소문을 전했다: "${m.text}"`, x.id);
 }
 
 function topicPassword(x, y) {
-  const b = x.home;
-  if (!b || b.owner !== x.id || y.knownPw.has(b.id)) return null;
-  const need = x.id === 'ha_serin' ? 75 : 55; // 철벽
-  if ((x.rel[y.id] || 0) < need || rand() > 0.35) return null;
-  const pw = Law.pw[b.id];
+  if (!canSharePw(x, y) || rand() > 0.35) return null; // 세린은 철벽이라 75 이상
+  const b = x.home, pw = Law.pw[b.id];
   return {
     script: [[x, greeting()], [y, greeting()], [x, `우리 집 비번 ${pw}예요. 비밀! 🤫`], [y, pick(['오… 외워둘게요!', '헐 저 믿는 거예요? 🥹', '…알겠어.'])]],
-    after: () => {
-      y.knownPw.add(b.id); x.stat('pwShared');
-      memAdd(y, { kind: 'pw', with: x.id, text: `${x.def.short}네 집 비번을 알게 됐다` });
-      memAdd(x, { kind: 'pw', with: y.id, text: `${y.def.short}에게 집 비번을 알려줬다` });
-      logTown(`🔑 ${josa(x.def.name, '이/가')} ${y.def.name}에게 집 비밀번호를 알려줬다`, x.id);
-    },
+    after: () => doSharePw(x, y),
   };
+}
+// may x tell y their home password? (owner, friendly enough, y doesn't know it yet)
+function canSharePw(x, y) {
+  const b = x.home;
+  if (!b || b.owner !== x.id || y.knownPw.has(b.id)) return false;
+  return (x.rel[y.id] || 0) >= (x.id === 'ha_serin' ? 75 : 55);
+}
+function doSharePw(x, y) {
+  const b = x.home;
+  if (!b || y.knownPw.has(b.id)) return;
+  y.knownPw.add(b.id); x.stat('pwShared');
+  memAdd(y, { kind: 'pw', with: x.id, text: `${x.def.short}네 집 비번을 알게 됐다` });
+  memAdd(x, { kind: 'pw', with: y.id, text: `${y.def.short}에게 집 비번을 알려줬다` });
+  logTown(`🔑 ${josa(x.def.name, '이/가')} ${y.def.name}에게 집 비밀번호를 알려줬다`, x.id);
 }
 
 // a time slot is OK for a promise if the routine there is free time or a relaxed (non-busy) activity
@@ -82,23 +90,32 @@ function findFreeSlot(a, b) {
 
 function topicPromise(x, y) {
   if ((x.rel[y.id] || 0) < 25 || rand() > 0.3) return null;
-  if (Sim.dates.some((d) => d.promise && [d.a, d.b].includes(x) && [d.a, d.b].includes(y))) return null;
+  if (hasPromise(x, y)) return null;
   const at = findFreeSlot(x, y);
   if (at === null) return null;
-  const act = pick(['restaurant_meal', 'cafe_visit', 'river_walk', 'plaza_walk']);
+  const act = pick(PROMISE_ACTS);
   const refuse = (y.id === 'ha_serin' && (y.rel[x.id] || 0) < 50 && rand() < 0.6) || (y.rel[x.id] || 0) < 15;
-  const when = `${dayOf(at) === dayOf(Sim.minute) ? '오늘' : dayOf(at) === dayOf(Sim.minute) + 1 ? '내일' : '모레'} ${clockStr(at)}`;
+  const when = whenStr(at);
   return {
     script: [[x, greeting()], [y, greeting()], [x, `${when}에 같이 ${PLACE_LABEL[act]} 어때요?`], [y, refuse ? pick(['…싫은데요.', '바빠요.', '음… 다음에요 😅']) : pick(['좋아요! 약속! 🤙', '콜!', '…그래.', '허허, 좋지!'])]],
     after: () => {
       if (refuse) { memAdd(x, { kind: 'news', nid: memUid++, about: y.id, text: `${y.def.short}에게 약속 잡자고 했다가 거절당함` }); return; }
-      Sim.dates.push({ a: x, b: y, at, promise: true, act });
-      const text = `${dateStr(at)} ${clockStr(at)} ${PLACE_LABEL[act]} 약속`;
-      memAdd(x, { kind: 'promise', with: y.id, text: `${josa(y.def.short, '과/와')} ${text}`, at });
-      memAdd(y, { kind: 'promise', with: x.id, text: `${josa(x.def.short, '과/와')} ${text}`, at });
-      logTown(`📅 ${josa(x.def.name, '과/와')} ${josa(y.def.name, '이/가')} ${when}에 ${PLACE_LABEL[act]} 약속을 잡았다`, x.id);
+      makePromise(x, y, act, at);
     },
   };
+}
+const PROMISE_ACTS = ['restaurant_meal', 'cafe_visit', 'river_walk', 'plaza_walk'];
+const whenStr = (at) => `${dayOf(at) === dayOf(Sim.minute) ? '오늘' : dayOf(at) === dayOf(Sim.minute) + 1 ? '내일' : '모레'} ${clockStr(at)}`;
+function hasPromise(x, y) { return Sim.dates.some((d) => d.promise && [d.a, d.b].includes(x) && [d.a, d.b].includes(y)); }
+function makePromise(x, y, act, at) {
+  if (at === null || at === undefined || hasPromise(x, y)) return false;
+  if (!PROMISE_ACTS.includes(act)) act = pick(PROMISE_ACTS);
+  Sim.dates.push({ a: x, b: y, at, promise: true, act });
+  const text = `${dateStr(at)} ${clockStr(at)} ${PLACE_LABEL[act]} 약속`;
+  memAdd(x, { kind: 'promise', with: y.id, text: `${josa(y.def.short, '과/와')} ${text}`, at });
+  memAdd(y, { kind: 'promise', with: x.id, text: `${josa(x.def.short, '과/와')} ${text}`, at });
+  logTown(`📅 ${josa(x.def.name, '과/와')} ${josa(y.def.name, '이/가')} ${whenStr(at)}에 ${PLACE_LABEL[act]} 약속을 잡았다`, x.id);
+  return true;
 }
 
 function topicRecommend(x, y) {
@@ -107,8 +124,13 @@ function topicRecommend(x, y) {
   if (y.mem.some((k) => k.kind === 'rec' && k.with === x.id && !k.done)) return null;
   return {
     script: [[x, greeting()], [y, greeting()], [x, fav.line], [y, pick(y.def.replies)]],
-    after: () => memAdd(y, { kind: 'rec', with: x.id, act: fav.act, text: `${josa(x.def.short, '이/가')} ${PLACE_LABEL[fav.act]} 추천해줌`, until: Sim.minute + 4 * 1440 }),
+    after: () => doRecommend(x, y, fav.act),
   };
+}
+const REC_ACTS = ['restaurant_meal', 'cafe_visit', 'river_walk', 'plaza_walk', 'store_shop', 'gym_visit', 'fountain'];
+function doRecommend(x, y, act) {
+  if (!REC_ACTS.includes(act) || y.mem.some((k) => k.kind === 'rec' && k.with === x.id && !k.done)) return;
+  memAdd(y, { kind: 'rec', with: x.id, act, text: `${josa(x.def.short, '이/가')} ${PLACE_LABEL[act]} 추천해줌`, until: Sim.minute + 4 * 1440 });
 }
 
 // free-time weights: recommendations heard earlier pull residents to those places

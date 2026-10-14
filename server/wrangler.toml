@@ -1,0 +1,7 @@
+name = "palpal-npc"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Only these sites may use the proxy (comma separated). Add your own domain if you host the game elsewhere.
+ALLOWED_ORIGINS = "https://sunfish501.github.io,http://localhost:8765"

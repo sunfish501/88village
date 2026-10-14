@@ -12,6 +12,18 @@ python -m http.server 8765
 
 → http://localhost:8765/game/
 
+## 🤖 NPC 인격 AI (Claude)
+
+주민 대화를 Claude가 성격, 관계, 기억, 마을 소식에 맞게 직접 씁니다. 대화 결과(약속, 추천, 비번 공유, 소문, 플러팅, 호감도, 기억)는 게임에 그대로 반영됩니다.
+
+- **나만 쓰기**: 게임 오른쪽 위 **🤖 AI** → Anthropic API 키 붙여넣기 → "저장 + 연결 테스트". 키는 그 브라우저에만 저장됩니다.
+- **모두에게 켜기**: `server/` 의 Cloudflare Worker를 배포(키는 서버 비밀값)하고 `game/js/ai-config.js`의 `proxyUrl`에 주소를 넣습니다. 자세한 방법은 [server/README.md](server/README.md)를 보세요.
+- **기본 설정**:
+  - 모델: Claude Opus 5.5
+  - 빈도: 하루 80회
+  - 나머지 대화: 규칙 기반 대사로 진행
+- **키가 없거나 오류가 나면**: 자동으로 규칙 기반 대화로 돌아갑니다.
+
 ## 조작
 
 | 입력 | 동작 |
@@ -19,6 +31,7 @@ python -m http.server 8765
 | 드래그 / 휠 | 지도 이동 / 확대·축소 |
 | 캐릭터·건물 배지 클릭 | 선택 + 따라가기, 오른쪽 패널에 일과·기록·스킬·관계·일기 |
 | Space / 1~4 | 일시정지 / 1·2·4·8배속 |
+| 🤖 AI | NPC 인격 AI 설정 (API 키·모델·빈도·사용량) |
 | 📜 팔팔법 | 법·마을 규칙·연애 현황·범죄 기록 |
 | 🔄 리셋 | 마을 리셋 후 처음부터 다시 시작 |
 
@@ -52,5 +65,6 @@ python -m http.server 8765
 
 ## 파일
 
-- `game/` — 게임 (`js/data.js` 주민·일과·팔팔법, `js/sim.js` 시뮬레이션, `js/law.js` 비밀번호·범죄·경찰, `js/memory.js` 대화 기억, `js/world.js` 지도·건물 그래픽, `js/render.js`, `js/ui.js`)
+- `game/` — 게임 (`js/data.js` 주민·일과·팔팔법, `js/sim.js` 시뮬레이션, `js/law.js` 비밀번호·범죄·경찰, `js/memory.js` 대화 기억, `js/ai.js`·`js/ai-config.js` Claude NPC AI, `js/world.js` 지도·건물 그래픽, `js/render.js`, `js/ui.js`)
+- `server/` — (선택) API 키를 서버에 두는 Cloudflare Worker 프록시
 - `characters/` — 스프라이트·초상화·페르소나 (`tools/generate_characters.py`로 재생성)
