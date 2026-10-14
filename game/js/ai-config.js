@@ -7,7 +7,7 @@
 //   3) For everyone (players need no key): deploy server/ (Cloudflare Worker holding the key as a
 //      secret) and put its URL in proxyUrl below.
 const AI_CONFIG = {
-  proxyUrl: '', // e.g. 'https://palpal-npc.<your-subdomain>.workers.dev'
+  proxyUrl: 'https://palpal-npc.palpal-npc-proxy.workers.dev', // Cloudflare Worker in server/ (key stays on the server)
   defaultProvider: 'openrouter',
   providers: {
     openrouter: {

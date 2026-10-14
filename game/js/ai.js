@@ -31,6 +31,8 @@ function loadSettings() {
   const s = { ...base, ...saved };
   if (!AI_CONFIG.providers[s.provider]) s.provider = AI_CONFIG.defaultProvider;
   if (s.key && providerOfKey(s.key)) s.provider = providerOfKey(s.key);
+  // no personal key and no custom proxy saved -> use the shared server proxy
+  if (!s.proxy && !s.key) s.proxy = AI_CONFIG.proxyUrl;
   // older saves (Claude-only version) may hold a model that belongs to another provider
   if (!AI_CONFIG.providers[s.provider].models.some((m) => m.id === s.model)) s.model = AI_CONFIG.providers[s.provider].defaultModel;
   return s;
