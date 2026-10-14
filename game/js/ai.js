@@ -1,10 +1,13 @@
-// NPC personality AI: Claude writes each conversation in character and picks what the NPCs
-// remember / do afterwards (promise, recommendation, password, gossip, flirting).
+// NPC personality AI: an LLM (OpenRouter e.g. DeepSeek V4 Flash, or Anthropic Claude) writes each
+// conversation in character and picks what the NPCs remember / do afterwards
+// (promise, recommendation, password, gossip, flirting).
 // Loaded as an ES module; game globals (Sim, Law, CHARACTERS, ...) come from the classic scripts.
 // With no key/proxy configured everything falls back to the rule-based dialogue.
 
 const SDK_URL = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.133.0/+esm';
 const STORE_KEY = 'palpal-ai-v1';
+// optional local-only key file (js/ai-local.js, git-ignored)
+const LOCAL = window.AI_LOCAL || {};
 
 const st = {
   settings: loadSettings(),
@@ -13,13 +16,30 @@ const st = {
   calls: 0, inTok: 0, outTok: 0, cost: 0, errors: 0, lastError: '', pausedUntil: 0,
 };
 
+function providerOfKey(key) {
+  for (const [id, p] of Object.entries(AI_CONFIG.providers)) if (key && key.startsWith(p.keyPrefix)) return id;
+  return null;
+}
 function loadSettings() {
-  const base = { enabled: true, key: '', model: AI_CONFIG.defaultModel, freq: 'normal', proxy: AI_CONFIG.proxyUrl };
-  try { return { ...base, ...JSON.parse(localStorage.getItem(STORE_KEY) || '{}') }; } catch (e) { return base; }
+  const provider = LOCAL.provider || providerOfKey(LOCAL.key) || AI_CONFIG.defaultProvider;
+  const base = {
+    enabled: true, key: '', provider, model: LOCAL.model || AI_CONFIG.providers[provider].defaultModel,
+    freq: 'normal', proxy: AI_CONFIG.proxyUrl,
+  };
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch (e) { saved = {}; }
+  const s = { ...base, ...saved };
+  if (!AI_CONFIG.providers[s.provider]) s.provider = AI_CONFIG.defaultProvider;
+  if (s.key && providerOfKey(s.key)) s.provider = providerOfKey(s.key);
+  // older saves (Claude-only version) may hold a model that belongs to another provider
+  if (!AI_CONFIG.providers[s.provider].models.some((m) => m.id === s.model)) s.model = AI_CONFIG.providers[s.provider].defaultModel;
+  return s;
 }
 function persist() { try { localStorage.setItem(STORE_KEY, JSON.stringify(st.settings)); } catch (e) { /* storage blocked */ } }
 
-const configured = () => st.settings.enabled && !!(st.settings.proxy || st.settings.key);
+// the key a request uses: the one saved in this browser, else the local dev file
+const activeKey = () => st.settings.key || (LOCAL.key && providerOfKey(LOCAL.key) === st.settings.provider ? LOCAL.key : '');
+const configured = () => st.settings.enabled && !!(st.settings.proxy || activeKey());
 
 // ---------------------------------------------------------------------------
 // Prompt
@@ -36,7 +56,7 @@ const SYSTEM_PROMPT = `너는 픽셀 아트 방치형 게임 "팔팔마을"의 �
 - 하세린과 곽현지는 19살 고등학생이다. 이 둘이 나오는 대화에는 연애, 플러팅, 성적인 내용을 절대 넣지 않고, 성인도 이 둘에게 플러팅하지 않는다.
 
 ## 대사 작성 규칙
-- 2~6줄. 한 줄은 40자 이내의 자연스러운 한국어 구어체로, 이모지는 가끔만 쓴다.
+- 2~4줄. 한 줄은 30자 이내의 짧고 자연스러운 한국어 구어체로, 이모지는 가끔만 쓴다.
 - 각 인물의 성격, 말투 예시, 나이, 관계, 지금 하는 일, 기분, 기억에 맞게 쓴다. 과묵한 사람은 짧게, 까칠한 사람은 까칠하게 말한다.
 - 기억과 최근 마을 소식을 적극 활용한다. 지난 약속, 추천받은 장소, 들은 소문을 자연스럽게 언급하면 좋다.
 - 같은 대화를 반복하지 말고, 게임 밖 이야기나 메타 발언은 하지 않는다.
@@ -53,7 +73,7 @@ const SYSTEM_PROMPT = `너는 픽셀 아트 방치형 게임 "팔팔마을"의 �
 
 ## 그 밖의 출력 필드
 - relationship_change: 이 대화로 바뀐 호감도. -5~5 사이의 정수.
-- memory_a, memory_b: 각자 이 대화에서 기억할 한 문장(30자 이내, 그 사람 시점).`;
+- memory_a, memory_b: 각자 이 대화에서 기억할 짧은 한 문장(20자 이내, 그 사람 시점).`;
 
 const CHAT_SCHEMA = {
   type: 'object',
@@ -130,11 +150,26 @@ function buildContext(a, b, place) {
 // ---------------------------------------------------------------------------
 async function getClient() {
   if (!st.Anthropic) st.Anthropic = (await import(SDK_URL)).default;
-  if (!st.client) st.client = new st.Anthropic({ apiKey: st.settings.key, dangerouslyAllowBrowser: true, maxRetries: 1 });
+  if (!st.client) st.client = new st.Anthropic({ apiKey: activeKey(), dangerouslyAllowBrowser: true, maxRetries: 1 });
   return st.client;
 }
 
+// OpenRouter (OpenAI-style chat completions) request body
+function buildOpenRouter(userText, maxTokens = 600) {
+  return {
+    provider: 'openrouter', // read by the server proxy; ignored by OpenRouter
+    model: st.settings.model,
+    max_tokens: maxTokens,
+    temperature: 0.9,
+    messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userText }],
+    response_format: { type: 'json_schema', json_schema: { name: 'npc_chat', strict: true, schema: CHAT_SCHEMA } },
+    reasoning: { enabled: false },
+    usage: { include: true },
+  };
+}
+
 function buildParams(userText, maxTokens = 2000) {
+  if (st.settings.provider === 'openrouter') return buildOpenRouter(userText);
   const model = st.settings.model;
   const params = {
     model,
@@ -151,6 +186,34 @@ function buildParams(userText, maxTokens = 2000) {
   return params;
 }
 
+async function callOpenRouter(params) {
+  const { provider, ...body } = params;
+  const res = await fetch(AI_CONFIG.providers.openrouter.url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${activeKey()}`, 'Content-Type': 'application/json', 'HTTP-Referer': location.origin, 'X-Title': 'PalPal Village' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) {
+    const err = new Error((data.error && data.error.message) || `openrouter ${res.status}`);
+    err.status = (data.error && data.error.code) || res.status;
+    throw err;
+  }
+  return data;
+}
+
+// normalize both API shapes to { text, refused, usage, cost }
+function readResponse(resp) {
+  if (resp.choices) {
+    const c = resp.choices[0] || {};
+    const u = resp.usage || {};
+    return { text: (c.message && c.message.content) || '', refused: c.finish_reason === 'content_filter', inTok: u.prompt_tokens || 0, outTok: u.completion_tokens || 0, cost: u.cost };
+  }
+  const u = resp.usage || {};
+  const block = (resp.content || []).find((b) => b.type === 'text');
+  return { text: block ? block.text : '', refused: resp.stop_reason === 'refusal', inTok: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0), outTok: u.output_tokens || 0, usage: u };
+}
+
 async function callModel(params) {
   if (st.settings.proxy) {
     const res = await fetch(st.settings.proxy, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(params) });
@@ -158,17 +221,20 @@ async function callModel(params) {
     if (!res.ok) { const err = new Error(body.error || `proxy ${res.status}`); err.status = res.status; throw err; }
     return body;
   }
+  if (st.settings.provider === 'openrouter') return callOpenRouter(params);
   const client = await getClient();
   if (params.betas) return client.beta.messages.create(params);
   return client.messages.create(params);
 }
 
-function track(resp) {
-  const u = resp.usage || {};
-  const m = AI_CONFIG.models.find((x) => x.id === st.settings.model) || AI_CONFIG.models[0];
-  const input = u.input_tokens || 0, cr = u.cache_read_input_tokens || 0, cw = u.cache_creation_input_tokens || 0, out = u.output_tokens || 0;
-  st.inTok += input + cr + cw; st.outTok += out;
-  st.cost += (input * m.in + cr * m.in * 0.1 + cw * m.in * 1.25 + out * m.out) / 1e6;
+function track(r) {
+  st.inTok += r.inTok; st.outTok += r.outTok;
+  if (typeof r.cost === 'number') { st.cost += r.cost; return; } // OpenRouter reports the exact cost
+  const models = AI_CONFIG.providers.anthropic.models;
+  const m = models.find((x) => x.id === st.settings.model) || models[0];
+  const u = r.usage || {};
+  const input = u.input_tokens || 0, cr = u.cache_read_input_tokens || 0, cw = u.cache_creation_input_tokens || 0;
+  st.cost += (input * m.in + cr * m.in * 0.1 + cw * m.in * 1.25 + r.outTok * m.out) / 1e6;
 }
 
 function handleError(e) {
@@ -176,6 +242,7 @@ function handleError(e) {
   const A = st.Anthropic;
   const status = e && e.status;
   if ((A && e instanceof A.AuthenticationError) || status === 401) { st.lastError = 'API 키가 올바르지 않아요'; st.pausedUntil = Infinity; }
+  else if (status === 402) { st.lastError = '크레딧이 부족해요 (OpenRouter 충전 필요)'; st.pausedUntil = Infinity; }
   else if ((A && e instanceof A.PermissionDeniedError) || status === 403) { st.lastError = '이 키로는 해당 모델을 쓸 수 없어요'; st.pausedUntil = Infinity; }
   else if ((A && e instanceof A.RateLimitError) || status === 429) { st.lastError = '요청이 너무 많아요 (잠시 쉬는 중)'; st.pausedUntil = performance.now() + 30000; }
   else if ((A && e instanceof A.BadRequestError) || status === 400) { st.lastError = `요청 오류: ${e.message}`; st.pausedUntil = performance.now() + 60000; }
@@ -186,13 +253,11 @@ function handleError(e) {
 async function request(userText, maxTokens) {
   st.inflight++; st.recent.push(performance.now()); st.dayCalls++; st.calls++;
   try {
-    const resp = await callModel(buildParams(userText, maxTokens));
-    track(resp);
-    if (resp.stop_reason === 'refusal') return null;
-    const block = (resp.content || []).find((b) => b.type === 'text');
-    if (!block) return null;
+    const r = readResponse(await callModel(buildParams(userText, maxTokens)));
+    track(r);
+    if (r.refused || !r.text) return null;
     st.lastError = '';
-    return JSON.parse(block.text);
+    return JSON.parse(r.text.replace(/^```(?:json)?\s*|\s*```$/g, ''));
   } catch (e) {
     handleError(e);
     return null;
@@ -260,15 +325,19 @@ const NpcAI = {
   status() {
     const s = st.settings;
     return {
-      enabled: s.enabled, configured: configured(), mode: s.proxy ? 'proxy' : s.key ? 'key' : 'none',
-      keyHint: s.key ? `${s.key.slice(0, 7)}…${s.key.slice(-4)}` : '', model: s.model, freq: s.freq, proxy: s.proxy,
+      enabled: s.enabled, configured: configured(), mode: s.proxy ? 'proxy' : s.key ? 'key' : activeKey() ? 'local' : 'none',
+      keyHint: s.key ? `${s.key.slice(0, 7)}…${s.key.slice(-4)}` : '', provider: s.provider, model: s.model, freq: s.freq, proxy: s.proxy,
       calls: st.calls, dayCalls: st.dayCalls, inTok: st.inTok, outTok: st.outTok, cost: st.cost, errors: st.errors,
       lastError: st.lastError, paused: performance.now() < st.pausedUntil,
     };
   },
   save(patch) {
+    if (patch.key) { patch.key = String(patch.key).trim(); const p = providerOfKey(patch.key); if (p) patch.provider = p; }
+    if (patch.provider && patch.provider !== st.settings.provider) {
+      const models = AI_CONFIG.providers[patch.provider].models;
+      if (!models.some((m) => m.id === (patch.model || st.settings.model))) patch.model = AI_CONFIG.providers[patch.provider].defaultModel;
+    }
     Object.assign(st.settings, patch);
-    if (patch.key !== undefined) st.settings.key = String(patch.key).trim();
     persist();
     st.client = null; st.pausedUntil = 0; st.lastError = '';
   },

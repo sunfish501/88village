@@ -1,5 +1,7 @@
 // Cloudflare Worker proxy for 팔팔마을 NPC AI.
-// Keeps the Anthropic API key on the server (secret ANTHROPIC_API_KEY) so players need no key.
+// Keeps the API key on the server so players need no key:
+//   OpenRouter requests  -> secret OPENROUTER_API_KEY
+//   Anthropic requests   -> secret ANTHROPIC_API_KEY
 // Only the game's own request shape is forwarded; anything else is rejected.
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -9,6 +11,8 @@ const MAX_TOKENS = 2000;
 const MAX_BODY = 60000;
 const GAME_PROMPT_PREFIX = '너는 픽셀 아트 방치형 게임 "팔팔마을"의 대사 작가다.';
 const PER_IP_PER_MINUTE = 30;
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const OPENROUTER_MODELS = ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'];
 
 const hits = new Map(); // best-effort per-isolate rate limit
 
@@ -45,6 +49,36 @@ function validate(p) {
   return null;
 }
 
+function validateOpenRouter(p) {
+  if (!OPENROUTER_MODELS.includes(p.model)) return 'model not allowed';
+  const m = p.messages;
+  if (!Array.isArray(m) || m.length !== 2 || m[0].role !== 'system' || m[1].role !== 'user') return 'unexpected messages';
+  if (typeof m[0].content !== 'string' || !m[0].content.startsWith(GAME_PROMPT_PREFIX)) return 'unexpected system prompt';
+  if (p.tools || !p.response_format || p.response_format.type !== 'json_schema') return 'structured output required';
+  return null;
+}
+
+async function forwardOpenRouter(p, env, headers) {
+  if (!env.OPENROUTER_API_KEY) return json({ error: 'server has no OPENROUTER_API_KEY secret' }, 500, headers);
+  const problem = validateOpenRouter(p);
+  if (problem) return json({ error: problem }, 400, headers);
+  const body = {
+    model: p.model,
+    max_tokens: Math.min(Number(p.max_tokens) || 1000, MAX_TOKENS),
+    temperature: p.temperature,
+    messages: p.messages,
+    response_format: p.response_format,
+    reasoning: p.reasoning,
+    usage: { include: true },
+  };
+  const res = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json', 'X-Title': 'PalPal Village' },
+    body: JSON.stringify(body),
+  });
+  return new Response(await res.text(), { status: res.status, headers: { ...headers, 'content-type': 'application/json' } });
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('Origin') || '';
@@ -52,15 +86,16 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: ok ? 204 : 403, headers });
     if (request.method !== 'POST') return json({ error: 'POST only' }, 405, headers);
     if (!ok) return json({ error: 'origin not allowed' }, 403, headers);
-    if (!env.ANTHROPIC_API_KEY) return json({ error: 'server has no ANTHROPIC_API_KEY secret' }, 500, headers);
     if (rateLimited(request.headers.get('CF-Connecting-IP') || 'unknown')) return json({ error: 'too many requests' }, 429, headers);
 
     const raw = await request.text();
     if (raw.length > MAX_BODY) return json({ error: 'request too large' }, 413, headers);
     let p;
     try { p = JSON.parse(raw); } catch (e) { return json({ error: 'bad json' }, 400, headers); }
+    if (p.provider === 'openrouter') return forwardOpenRouter(p, env, headers);
     const problem = validate(p);
     if (problem) return json({ error: problem }, 400, headers);
+    if (!env.ANTHROPIC_API_KEY) return json({ error: 'server has no ANTHROPIC_API_KEY secret' }, 500, headers);
 
     const params = {
       model: p.model,

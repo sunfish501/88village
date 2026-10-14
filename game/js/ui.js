@@ -185,15 +185,18 @@ function showLaw() {
 function showAiSettings() {
   if (!window.NpcAI) { openModal('<h2>🤖 AI 설정</h2><p>AI 모듈을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.</p>'); return; }
   const s = NpcAI.status();
-  const models = AI_CONFIG.models.map((m) => `<option value="${m.id}" ${m.id === s.model ? 'selected' : ''}>${esc(m.label)}</option>`).join('');
+  const provOpts = Object.entries(AI_CONFIG.providers).map(([id, p]) => `<option value="${id}" ${id === s.provider ? 'selected' : ''}>${esc(p.label)}</option>`).join('');
+  const modelOpts = (prov, cur) => AI_CONFIG.providers[prov].models.map((m) => `<option value="${m.id}" ${m.id === cur ? 'selected' : ''}>${esc(m.label)}</option>`).join('');
   const freqs = Object.entries(AI_CONFIG.frequency).map(([k, f]) => `<option value="${k}" ${k === s.freq ? 'selected' : ''}>${esc(f.label)}</option>`).join('');
-  const state = !s.configured ? '⚪ 꺼짐 (키 없음 · 규칙 기반 대화)' : s.paused && s.lastError ? `🟠 일시중지: ${esc(s.lastError)}` : `🟢 켜짐 (${s.mode === 'proxy' ? '서버 프록시' : '내 API 키'})`;
+  const modeLabel = { proxy: '서버 프록시', key: '내 API 키', local: '로컬 키 파일' }[s.mode] || '';
+  const state = !s.configured ? '⚪ 꺼짐 (키 없음 · 규칙 기반 대화)' : s.paused && s.lastError ? `🟠 일시중지: ${esc(s.lastError)}` : `🟢 켜짐 (${AI_CONFIG.providers[s.provider].label} · ${modeLabel})`;
   openModal(`<h2>🤖 NPC 인격 AI</h2>
     <p class="ai-state">${state}</p>
-    <p><small>Claude가 주민들의 대화를 성격·관계·기억에 맞게 직접 쓰고, 대화 결과(약속, 추천, 비번 공유, 소문, 플러팅)를 게임에 반영해요. 키가 없으면 기존 규칙 기반 대화로 돌아가요.</small></p>
-    <label class="ai-row">Anthropic API 키
-      <input id="ai-key" type="password" autocomplete="off" placeholder="${s.keyHint ? `저장됨: ${esc(s.keyHint)} (바꾸려면 새로 입력)` : 'sk-ant-...'}"></label>
-    <label class="ai-row">모델 <select id="ai-model">${models}</select></label>
+    <p><small>AI가 주민들의 대화를 성격·관계·기억에 맞게 직접 쓰고, 대화 결과(약속, 추천, 비번 공유, 소문, 플러팅)를 게임에 반영해요. 키가 없으면 기존 규칙 기반 대화로 돌아가요.</small></p>
+    <label class="ai-row">AI 서비스 <select id="ai-provider">${provOpts}</select></label>
+    <label class="ai-row">API 키 <small>(sk-or-… 는 OpenRouter, sk-ant-… 는 Claude로 자동 인식)</small>
+      <input id="ai-key" type="password" autocomplete="off" placeholder="${s.keyHint ? `저장됨: ${esc(s.keyHint)} (바꾸려면 새로 입력)` : s.mode === 'local' ? '로컬 키 파일 사용 중 (입력하면 이 브라우저 키가 우선)' : 'sk-or-... / sk-ant-...'}"></label>
+    <label class="ai-row">모델 <select id="ai-model">${modelOpts(s.provider, s.model)}</select></label>
     <label class="ai-row">AI 대화 빈도 <select id="ai-freq">${freqs}</select></label>
     <label class="ai-row ai-check"><input id="ai-enabled" type="checkbox" ${s.enabled ? 'checked' : ''}> AI 사용</label>
     <details><summary>고급: 서버 프록시 URL</summary>
@@ -203,8 +206,12 @@ function showAiSettings() {
     <pre id="ai-out" class="ai-out" hidden></pre>
     <p class="ai-usage"><small>이번 세션: ${s.calls}회 호출 · 오늘 ${s.dayCalls}회 · 입력 ${s.inTok.toLocaleString()} / 출력 ${s.outTok.toLocaleString()} 토큰 · 예상 비용 약 $${s.cost.toFixed(3)}${s.errors ? ` · 오류 ${s.errors}회` : ''}</small></p>
     <p><small>🔒 키는 이 브라우저(localStorage)에만 저장되고, Anthropic API로만 직접 전송돼요. 깃허브나 게임 파일에는 들어가지 않아요. 공용 PC에서는 사용 후 "키 삭제"를 눌러 주세요.</small></p>`, { confirm: '닫기' });
+  $('#ai-provider').addEventListener('change', () => {
+    const prov = $('#ai-provider').value;
+    $('#ai-model').innerHTML = modelOpts(prov, AI_CONFIG.providers[prov].defaultModel);
+  });
   const collect = () => {
-    const patch = { model: $('#ai-model').value, freq: $('#ai-freq').value, enabled: $('#ai-enabled').checked, proxy: $('#ai-proxy').value.trim() };
+    const patch = { provider: $('#ai-provider').value, model: $('#ai-model').value, freq: $('#ai-freq').value, enabled: $('#ai-enabled').checked, proxy: $('#ai-proxy').value.trim() };
     const key = $('#ai-key').value.trim();
     if (key) patch.key = key;
     NpcAI.save(patch);
@@ -215,7 +222,7 @@ function showAiSettings() {
   $('#ai-test').addEventListener('click', async () => {
     collect();
     if (!NpcAI.configured()) { out('키나 프록시 URL을 먼저 입력해 주세요.'); return; }
-    out('Claude에게 물어보는 중…');
+    out('AI에게 물어보는 중…');
     const r = await NpcAI.test();
     out(r.ok ? `✅ 연결 성공!\n${r.msg}` : `❌ ${r.msg}`);
   });

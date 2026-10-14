@@ -12,14 +12,15 @@ python -m http.server 8765
 
 → http://localhost:8765/game/
 
-## 🤖 NPC 인격 AI (Claude)
+## 🤖 NPC 인격 AI (OpenRouter · Claude)
 
-주민 대화를 Claude가 성격, 관계, 기억, 마을 소식에 맞게 직접 씁니다. 대화 결과(약속, 추천, 비번 공유, 소문, 플러팅, 호감도, 기억)는 게임에 그대로 반영됩니다.
+주민 대화를 AI가 성격, 관계, 기억, 마을 소식에 맞게 직접 씁니다. 기본값은 OpenRouter의 DeepSeek V4 Flash이고, Claude도 선택할 수 있습니다. 대화 결과(약속, 추천, 비번 공유, 소문, 플러팅, 호감도, 기억)는 게임에 그대로 반영됩니다.
 
-- **나만 쓰기**: 게임 오른쪽 위 **🤖 AI** → Anthropic API 키 붙여넣기 → "저장 + 연결 테스트". 키는 그 브라우저에만 저장됩니다.
+- **나만 쓰기**: 게임 오른쪽 위 **🤖 AI** → API 키(`sk-or-…` OpenRouter / `sk-ant-…` Claude) 붙여넣기 → "저장 + 연결 테스트". 키는 그 브라우저에만 저장됩니다.
+- **로컬 개발**: `game/js/ai-local.example.js`를 `ai-local.js`로 복사해 키를 넣습니다. 이 파일은 git에 올라가지 않습니다.
 - **모두에게 켜기**: `server/` 의 Cloudflare Worker를 배포(키는 서버 비밀값)하고 `game/js/ai-config.js`의 `proxyUrl`에 주소를 넣습니다. 자세한 방법은 [server/README.md](server/README.md)를 보세요.
 - **기본 설정**:
-  - 모델: Claude Opus 5.5
+  - 모델: DeepSeek V4 Flash (OpenRouter, 대화 1회 약 $0.0003)
   - 빈도: 하루 80회
   - 나머지 대화: 규칙 기반 대사로 진행
 - **키가 없거나 오류가 나면**: 자동으로 규칙 기반 대화로 돌아갑니다.

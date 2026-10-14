@@ -5,3 +5,4 @@ __pycache__/
 Thumbs.db
 node_modules/
 .wrangler/
+game/js/ai-local.js
