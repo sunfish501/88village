@@ -28,12 +28,12 @@ function initInput() {
     if (down) {
       const dx = e.clientX - down.x, dy = e.clientY - down.y;
       if (Math.abs(dx) + Math.abs(dy) > 5) down.moved = true;
-      if (down.moved) { Cam.follow = null; Cam.x = down.cx - dx / Cam.zoom; Cam.y = down.cy - dy / Cam.zoom; cv.style.cursor = 'grabbing'; }
+      if (down.moved) { Cam.follow = null; Cam.x = down.cx - dx / Cam.zoom; Cam.y = down.cy - dy / Cam.zoom; cv.style.cursor = 'var(--cur-grabbing)'; }
       return;
     }
     const w = screenToWorld(e.clientX - r.left, e.clientY - r.top);
     Gfx.hover = agentAt(w.x, w.y) || badgeAgentAt(e.clientX - r.left, e.clientY - r.top);
-    cv.style.cursor = Gfx.hover ? 'pointer' : 'grab';
+    cv.style.cursor = Gfx.hover ? 'var(--cur-pointer)' : 'var(--cur-grab)';
   });
   cv.addEventListener('pointerup', (e) => {
     const r = cv.getBoundingClientRect();
@@ -47,7 +47,7 @@ function initInput() {
         Cam.follow = null;
       }
     }
-    down = null; cv.style.cursor = 'grab';
+    down = null; cv.style.cursor = 'var(--cur-grab)';
   });
   cv.addEventListener('wheel', (e) => {
     e.preventDefault();

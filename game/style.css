@@ -1,4 +1,9 @@
 :root {
+  /* pixel-art cursors (tools/generate_cursors.py); keyword after the comma is the fallback */
+  --cur-default: url(cursors/arrow.png) 0 0, auto;
+  --cur-pointer: url(cursors/pointer.png) 10 0, pointer;
+  --cur-grab: url(cursors/grab.png) 14 14, grab;
+  --cur-grabbing: url(cursors/grabbing.png) 14 14, grabbing;
   --paper: #f6ecd6;
   --paper-2: #efe0bf;
   --ink: #3a2a1e;
@@ -15,12 +20,13 @@
 :root[data-theme="dark"] { --bg: #161d14; }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--font); overflow: hidden; }
-button { font-family: inherit; cursor: pointer; }
+html, body { cursor: var(--cur-default); margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--font); overflow: hidden; }
+button, select, summary, .card, .rel, label.ai-check, input[type=checkbox] { cursor: var(--cur-pointer); }
+button { font-family: inherit; }
 
 #app { display: flex; height: 100vh; }
 #stage { position: relative; flex: 1; min-width: 0; }
-#game { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; image-rendering: pixelated; }
+#game { display: block; width: 100%; height: 100%; cursor: var(--cur-grab); touch-action: none; image-rendering: pixelated; }
 
 /* pixel panel look */
 .pix, #hud > div, #log, #panel, .toast, #event-banner, #modal .box {
@@ -105,7 +111,7 @@ button { font-family: inherit; cursor: pointer; }
 .sk { display: grid; grid-template-columns: 1fr auto; gap: 2px 4px; }
 .sk .bar { grid-column: 1 / -1; }
 .rels { display: grid; gap: 4px; }
-.rel { display: grid; grid-template-columns: 22px 34px 72px 1fr; gap: 6px; align-items: center; cursor: pointer; }
+.rel { display: grid; grid-template-columns: 22px 34px 72px 1fr; gap: 6px; align-items: center; }
 .rel img { width: 22px; height: 22px; image-rendering: pixelated; border-radius: 3px; }
 .rel em { font-style: normal; color: var(--ink-2); font-size: 11px; }
 .diary { list-style: none; padding: 0; margin: 0; line-height: 1.7; }
@@ -163,4 +169,4 @@ button { font-family: inherit; cursor: pointer; }
 .ai-btns button { flex: 1; background: var(--paper-2); border: 2px solid var(--wood); border-radius: 4px; padding: 6px; font-size: 12px; color: var(--ink); }
 .ai-btns #ai-test { background: var(--accent); color: #fff; }
 .ai-out { white-space: pre-wrap; background: #fffaf0; border: 1px dashed #d9b98a; border-radius: 4px; padding: 6px; font-size: 12px; font-family: inherit; }
-details summary { cursor: pointer; font-size: 12px; margin-top: 8px; }
+details summary { font-size: 12px; margin-top: 8px; }
