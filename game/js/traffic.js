@@ -19,8 +19,9 @@ const PHASES = [
 ];
 const SIGNAL = { phase: 0, t: 0 };
 const signalFor = (axis) => PHASES[SIGNAL.phase][axis === 'h' ? 'ew' : 'ns'];
-// car centre position where it must stop (front just before the crosswalk)
-const STOP_AT = { 'h1': 44 * TILE - 2 - 15, 'h-1': 52 * TILE + 2 + 15, 'v1': 28 * TILE - 2 - 15, 'v-1': 36 * TILE + 2 + 15 };
+// where a car's front must stop (just before the crosswalk)
+const STOP_FRONT = { 'h1': 44 * TILE - 2, 'h-1': 52 * TILE + 2, 'v1': 28 * TILE - 2, 'v-1': 36 * TILE + 2 };
+const BUS_STOP_X = 37 * TILE + 8; // 범키키 정류장 (eastbound lane)
 const SIGNAL_POSTS = [
   { x: 45, y: 29, axis: 'h' }, { x: 50, y: 34, axis: 'h' }, { x: 50, y: 29, axis: 'v' }, { x: 45, y: 34, axis: 'v' },
 ];
@@ -75,6 +76,17 @@ function vehicleSpriteH(kind) {
   R(g, 31, 8, 2, 3, '#fff2b0');
   outline(g, 34, 22); return c;
 }
+function busSprite() {
+  const [c, g] = mkCanvas(64, 24);
+  R(g, 6, 18, 8, 5, '#1e1e22'); R(g, 48, 18, 8, 5, '#1e1e22');
+  R(g, 1, 3, 62, 16, '#3fae5a'); R(g, 1, 3, 62, 3, '#2f8a46'); R(g, 1, 15, 62, 3, '#f2c94a');
+  for (let x = 4; x < 52; x += 8) R(g, x, 6, 6, 6, '#a8d4ec');
+  R(g, 54, 6, 7, 10, '#a8d4ec'); R(g, 54, 11, 7, 1, '#3fae5a');
+  R(g, 61, 8, 2, 3, '#fff2b0');
+  text(g, '88', 30, 16.5, '#2a2a2a', 6);
+  outline(g, 64, 24); return c;
+}
+
 function rotateCanvas(src) {
   const [c, g] = mkCanvas(src.height, src.width);
   g.translate(src.height, 0); g.rotate(Math.PI / 2); g.drawImage(src, 0, 0);
@@ -104,8 +116,10 @@ function initCars() {
   for (const lane of lanes) for (let i = 0; i < 2; i++) {
     const col = CAR_COLORS[(Cars.length * 3) % CAR_COLORS.length];
     const len = lane.axis === 'h' ? MW * TILE : MH * TILE;
-    Cars.push({ ...lane, pos: (i * 0.5 + rand() * 0.3) * len, len, speed: 55 + rand() * 25, canvas: carSprite(col, lane.axis === 'v'), checked: new Set() });
+    Cars.push({ ...lane, pos: (i * 0.5 + rand() * 0.3) * len, len, speed: 55 + rand() * 25, canvas: carSprite(col, lane.axis === 'v'), checked: new Set(), half: 15 });
   }
+  // 88번 시내버스: loops the eastbound lane and stops at 범키키 정류장
+  Cars.push({ axis: 'h', dir: 1, fixed: 33 * TILE - 2, pos: 0, len: MW * TILE, speed: 48, canvas: busSprite(), checked: new Set(), half: 32, isBus: true, dwell: 0, served: false });
   const hosp = World.buildings.hospital.door, pol = World.buildings.police.door, fire = World.buildings.firestation.door;
   Traffic.parked = {
     ambulance: { x: hosp.x + 3, y: hosp.y },
@@ -144,23 +158,30 @@ function updateCars(realDt) {
       continue;
     }
     let step = car.speed * dt;
+    if (car.isBus) {
+      if (car.dwell > 0) { car.dwell -= dt; if (car.dwell <= 0) car.served = true; continue; }
+      const toStop = (BUS_STOP_X - car.pos) * car.dir;
+      if (!car.served && toStop >= 0) {
+        if (toStop <= step) { car.pos = BUS_STOP_X; car.dwell = 5; busArrive(); continue; }
+      }
+    }
     const ped = pedestrianAhead(car);
     if (ped) {
       if (!car.checked.has(ped.id)) {
         car.checked.add(ped.id);
-        if (canCrash(ped) && rand() < TRAFFIC.accidentChance) car.reckless = ped; // 휴대폰 보다가…
+        if (!car.isBus && canCrash(ped) && rand() < TRAFFIC.accidentChance) car.reckless = ped; // 휴대폰 보다가…
       }
       if (car.reckless !== ped) step = 0;
     } else car.checked.clear();
     // keep distance to the car ahead in the same lane
     for (const o of Cars) {
       if (o === car || o.hidden || o.axis !== car.axis || o.fixed !== car.fixed) continue;
-      const gap = (o.pos - car.pos) * car.dir;
-      if (gap > 0 && gap < 38) step = 0;
-      else if (gap > 0) step = Math.min(step, gap - 38);
+      const gap = (o.pos - car.pos) * car.dir, need = car.half + o.half + 8;
+      if (gap > 0 && gap < need) step = 0;
+      else if (gap > 0) step = Math.min(step, gap - need);
     }
     // traffic light
-    const sig = signalFor(car.axis), stop = STOP_AT[car.axis + car.dir];
+    const sig = signalFor(car.axis), stop = STOP_FRONT[car.axis + car.dir] - car.dir * car.half;
     const before = (stop - car.pos) * car.dir;
     if (sig !== 'G' && before >= 0 && !(sig === 'Y' && before < 10)) step = Math.min(step, before);
     car.pos += car.dir * Math.max(0, step);
@@ -173,10 +194,35 @@ function updateCars(realDt) {
       else if (d < 6) crash(car, a);
     }
     if (car.pos < -40) car.pos += car.len + 80;
-    if (car.pos > car.len + 40) car.pos -= car.len + 80;
+    if (car.pos > car.len + 40) { car.pos -= car.len + 80; car.served = false; }
   }
   updateVehicles(dt);
   updateAccident(dt);
+  if (typeof updateTrain === 'function') updateTrain(dt);
+}
+
+// passengers get off / on at 범키키 정류장
+const SOUVENIRS = ['시내 빵집 마카롱', '영화 굿즈', '새 운동화', '서점에서 산 책', '시장 떡볶이 포장', '인형뽑기 인형'];
+function busArrive() {
+  const outside = World.buildings.outside;
+  for (const a of Sim.agents) {
+    if (a.act && a.act.key === 'bus_trip' && Sim.minute >= (a.tripUntil || 0)) {
+      const s = pick(World.spots.busstop);
+      a.inside = null; a.tx = s.x; a.ty = s.y; a.px = s.x * TILE + 8; a.py = s.y * TILE + 8;
+      a.act = null; a.state = 'idle';
+      const gift = pick(SOUVENIRS);
+      a.mood = clamp(a.mood + 12, 0, 100);
+      a.say('다녀왔다~ 🚌', 2.5); a.note(`시내 나들이 다녀옴 (${gift})`);
+      logTown(`🚌 ${josa(a.def.name, '이/가')} 버스에서 내렸다. 시내에서 ${josa(gift, '을/를')} 사 왔다`, a.id);
+    }
+  }
+  for (const a of Sim.agents) {
+    if (!a.act || a.act.key !== 'wait_bus' || a.state !== 'doing' || a.chat) continue;
+    a.script('bus_trip'); a.inside = outside;
+    a.tripUntil = Sim.minute + randInt(120, 300);
+    a.stat('bus_trips');
+    logTown(`🚌 ${josa(a.def.name, '이/가')} 88번 버스를 타고 시내로 나갔다`, a.id);
+  }
 }
 
 function carCenter(car) {

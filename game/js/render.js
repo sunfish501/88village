@@ -67,6 +67,7 @@ function render(now) {
   const inView = (x, y, w, h) => x + w > cx && x < cx + vw && y + h > cy && y < cy + vh;
   for (const o of World.objects) if (inView(o.x, o.y, o.canvas.width, o.canvas.height)) list.push(o);
   for (const d of trafficDrawables()) if (d.draw || inView(d.x, d.y, d.canvas.width, d.canvas.height)) list.push(d);
+  for (const d of worldExtras()) if (inView(d.x, d.y, d.canvas.width, d.canvas.height)) list.push(d);
   for (const a of Sim.agents) if (!a.inside && inView(a.px - 16, a.py - 28, 32, 34)) list.push({ agent: a, baseY: a.py + 6 });
   const cat = catDrawable(now); if (cat) list.push(cat);
   list.sort((p, q) => p.baseY - q.baseY);
@@ -186,6 +187,13 @@ function drawAgent(ctx, a) {
   }
   if (!img) return;
   const col = a.state === 'walking' ? [0, 1, 2, 1][Math.floor(a.walkPhase) % 4] : 1;
+  if (a.act && a.act.key === 'abducted' && Sim.abduct && Sim.abduct.a === a) {
+    const t = Math.min(1, (performance.now() - Sim.abduct.born) / 3000);
+    ctx.save(); ctx.globalAlpha = 1 - t * 0.8;
+    ctx.drawImage(img, 32, 0, 32, 32, Math.round(a.px - 16), Math.round(a.py - 26 - t * 90), 32, 32);
+    ctx.restore();
+    return;
+  }
   if (a.act && a.act.key === 'knocked') {
     ctx.save(); ctx.translate(Math.round(a.px), Math.round(a.py)); ctx.rotate(-Math.PI / 2);
     ctx.drawImage(img, 32, 0, 32, 32, -26, -16, 32, 32); ctx.restore();
@@ -251,6 +259,7 @@ function drawOverlays(ctx, cx, cy, z, now) {
     }
   }
   trafficOverlays(ctx, cx, cy, z, now);
+  extrasOverlays(ctx, cx, cy, z, now);
 }
 
 function clampCam() {
@@ -358,8 +367,9 @@ function drawCrisisWorld(ctx, now, cx, cy, vw, vh) {
     ctx.beginPath(); ctx.arc(b.x + 4, b.y - t * 20, r, 0, 7); ctx.fill();
   }
   // UFO over the school field
-  if (Sim.ufo > Sim.minute) {
-    const x = 80 * TILE, y = 58 * TILE + Math.sin(now / 400) * 6;
+  const abd = Sim.abduct && !Sim.abduct.hidden ? Sim.abduct : null;
+  if (Sim.ufo > Sim.minute || abd) {
+    const x = abd ? abd.x : 80 * TILE, y = (abd ? abd.y - 110 : 58 * TILE) + Math.sin(now / 400) * 6;
     ctx.fillStyle = 'rgba(140,255,180,0.18)';
     ctx.beginPath(); ctx.moveTo(x - 10, y + 6); ctx.lineTo(x + 10, y + 6); ctx.lineTo(x + 40, y + 140); ctx.lineTo(x - 40, y + 140); ctx.closePath(); ctx.fill();
     ctx.fillStyle = '#9aa4ae'; ctx.beginPath(); ctx.ellipse(x, y, 30, 8, 0, 0, 7); ctx.fill();

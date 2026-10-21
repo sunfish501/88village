@@ -101,6 +101,11 @@ const ACTIVITIES = {
   jailed:       { label: '유치장 신세', emoji: '🔒', loc: 'police', inside: true, busy: true, sticky: true, mood: -0.02, stat: 'jailed' },
   shaken:       { label: '놀란 마음 진정시키는 중', emoji: '😵', loc: 'home', inside: true, busy: true, sticky: true, energy: 0.1 },
 
+  // bus (traffic.js) and UFO (director.js)
+  wait_bus:     { label: '범키키 정류장에서 버스 기다리는 중', emoji: '🚏', loc: 'busstop', dur: [40, 90] },
+  bus_trip:     { label: '버스 타고 시내 나들이', emoji: '🚌', busy: true, sticky: true },
+  abducted:     { label: 'UFO에 끌려감…', emoji: '🛸', busy: true, sticky: true },
+
   // traffic (traffic.js)
   knocked:      { label: '교통사고로 쓰러짐', emoji: '💫', busy: true, sticky: true },
   transported:  { label: '구급차로 이송 중', emoji: '🚑', busy: true, sticky: true },
@@ -133,7 +138,7 @@ const ACTIVITIES = {
 
 // routine blocks: d = all|weekday|weekend|mon|notMon, f/t = hours (t may be a dayVar key),
 // a = activity, p = {activity: weight}, if/ifNot = dayVar flag. First match wins; no match => sleep at home.
-const FREE = { plaza_walk: 2, fountain: 1, bench_rest: 1, river_walk: 2, cafe_visit: 2, restaurant_meal: 2, store_shop: 1, gym_visit: 1, visit: 2, home_relax: 2 };
+const FREE = { wait_bus: 0.5, plaza_walk: 2, fountain: 1, bench_rest: 1, river_walk: 2, cafe_visit: 2, restaurant_meal: 2, store_shop: 1, gym_visit: 1, visit: 2, home_relax: 2 };
 
 const CHARACTERS = [
   {
@@ -289,7 +294,7 @@ const STAT_LABELS = {
   beer: '🍺 퇴근 맥주', cupramen: '🍜 컵라면', donkatsu: '🍱 돈까스', chicken: '🍗 닭가슴살', overtime: '😩 야근',
   snack: '🍗 야식', flirts: '😏 플러팅', confess: '💌 고백', dates: '💕 데이트', hospital: '🏥 병원', store: '🍙 편의점 끼니',
   coffee: '☕ 출근 커피', promises: '🤝 약속 지킴', promiseBroken: '😤 약속 펑크', crimes: '⚖️ 범죄', thefts: '🫳 절도', trespass: '🚪 무단출입',
-  essays: '📝 반성문', accidents: '💥 교통사고', dispatches: '🚓 사고 출동', war: '⚔️ 전쟁 겪음', injured: '🩹 부상', fires: '🧯 화재 진압', service: '🧹 사회봉사', jailed: '🔒 유치장', cheats: '💔 바람', breakups: '💔 이별', pwShared: '🔑 비번 알려줌',
+  essays: '📝 반성문', bus_trips: '🚌 시내 나들이', abducted: '🛸 UFO 납치', tourists: '🧳 관광객 안내', accidents: '💥 교통사고', dispatches: '🚓 사고 출동', war: '⚔️ 전쟁 겪음', injured: '🩹 부상', fires: '🧯 화재 진압', service: '🧹 사회봉사', jailed: '🔒 유치장', cheats: '💔 바람', breakups: '💔 이별', pwShared: '🔑 비번 알려줌',
 };
 
 const GREETINGS_DAY = ['안녕하세요!', '오, 반가워요!', '어디 가세요?', '날씨 좋네요~'];

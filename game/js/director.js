@@ -15,7 +15,10 @@ Object.assign(Sim, {
   fires: {},      // buildingId -> end minute
   damaged: {},    // buildingId -> minute until smoke clears (cosmetic)
   flood: 0, blackout: 0, ufo: 0, booms: [],
+  abduct: null, ufoAbductAt: 0, // UFO abduction in progress / scheduled
+  invaders: [],                 // 칠칠마을 soldiers during a war
 });
+const UFO_PLACE = { id: 'ufo', name: 'UFO 안', virtual: true, door: { x: 0, y: 0 } };
 
 const CRISIS = {
   storm: { emoji: '⛈️', title: '태풍 상륙', dur: [180, 360] },
@@ -30,7 +33,7 @@ const DRAMATIC = Object.keys(CRISIS);
 const GATHER_KINDS = { cat: 1, flea: 1, busking: 1, chicken: 1 };
 const GATHER_CENTERS = ['plaza', 'fountain', 'stage', 'field', 'school_front'];
 const EVENT_KINDS = ['gather', 'cat', 'flea', 'busking', 'chicken', 'rain', ...DRAMATIC];
-const FIRE_TARGETS = () => BUILDINGS.filter((b) => !b.virtual && b.id !== 'police' && b.id !== 'firestation').map((b) => b.id);
+const FIRE_TARGETS = () => BUILDINGS.filter((b) => !b.virtual && !['police', 'firestation', 'station'].includes(b.id)).map((b) => b.id);
 
 function directorInit() {
   const S = World.spots;
@@ -353,7 +356,11 @@ function startCrisis(ev) {
       break;
     default: break;
   }
-  if (ev.kind === 'ufo') { Sim.ufo = ev.end; logTown(`🛸 ${ev.title}!${desc}`, null, true); }
+  if (ev.kind === 'ufo') {
+    Sim.ufo = ev.end;
+    Sim.ufoAbductAt = Sim.minute + randInt(10, Math.max(12, ev.end - Sim.minute - 15));
+    if (desc) logTown(`🛸 ${ev.desc}`); // the gathering itself is announced by tickEvents
+  }
 }
 
 // 팔팔-칠칠 전쟁: cartoonish chaos (sirens, explosions, injuries), never deaths
@@ -365,6 +372,12 @@ function startWar(ev) {
   const others = adults.filter((a) => a !== U);
   while (defenders.size < Math.min(3, adults.length) && others.length) defenders.add(others.splice(randInt(0, others.length - 1), 1)[0]);
   Sim.crisis = { kind: 'war', ev, end: ev.end, defenders: [...defenders].map((a) => a.id), nextBoom: Sim.minute, nextHurt: Sim.minute + 45, hurt: [] };
+  // 칠칠마을 army enters from the east end of the main road
+  Sim.invaders = [];
+  for (let i = 0; i < 7; i++) {
+    const y = randInt(28, 35);
+    Sim.invaders.push({ px: (MW + 2 + i * 1.5) * TILE, py: y * TILE + 8, gx: randInt(88, 94), gy: y, flag: i === 0, bubble: null, retreat: false });
+  }
   logTown(`🚨 칠칠마을이 쳐들어왔다! ${ev.title}!${ev.desc ? ` — ${ev.desc}` : ''}`, null, true);
   for (const a of Sim.agents) {
     if (!freeForCrisis(a)) continue;
@@ -385,6 +398,8 @@ function tickWar() {
   if (Sim.minute >= C.end) return endWar();
   if (Sim.minute >= C.nextBoom) {
     C.nextBoom = Sim.minute + randInt(6, 18);
+    const inv = Sim.invaders.filter((x) => !x.retreat);
+    if (inv.length && rand() < 0.5) { const s2 = pick(inv); s2.bubble = { text: pick(['칠칠마을 만세!', '77! 77! 77!', '돌격!!', '팔팔마을은 우리 거다!', '물풍선 장전!']), until: performance.now() + 2200 }; }
     const s = pick(World.spots.warfront);
     Sim.booms.push({ x: (s.x + randInt(-6, 3)) * TILE, y: (s.y + randInt(-8, 8)) * TILE, born: performance.now() });
     const d = Sim.byId[pick(C.defenders)];
@@ -411,14 +426,60 @@ function endWar() {
   for (let i = 0; i < involved.length; i++) for (let j = i + 1; j < involved.length; j++) changeRel(involved[i], involved[j], 4);
   const ids = FIRE_TARGETS();
   for (let k = 0; k < 2; k++) Sim.damaged[pick(ids)] = dayOf(Sim.minute) * 1440;
+  for (const x of Sim.invaders) { x.retreat = true; x.bubble = { text: pick(['후퇴!!', '다음엔 안 봐준다!', '협정이다 협정!']), until: performance.now() + 2500 }; }
   const heroes = C.defenders.map((id) => Sim.byId[id].def.short).join(', ');
   logTown(`🕊️ 칠칠마을과 평화 협정 체결! 전쟁 종료. 마을을 지킨 사람: ${heroes}${C.hurt.length ? ` (부상 ${C.hurt.length}명)` : ''}`, null, true);
   newsAll(Sim.agents, `칠칠마을이 쳐들어왔다가 평화 협정을 맺었대요. ${heroes}이(가) 입구를 지켰어요`, null, false);
 }
 
-function tickCrisis() {
+function tickInvaders(dt) {
+  if (!Sim.invaders.length) return;
+  const sp = 1.6 * TILE * dt;
+  for (const x of Sim.invaders) {
+    const tx = x.retreat ? (MW + 6) * TILE : x.gx * TILE + 8, ty = x.retreat ? x.py : x.gy * TILE + 8;
+    const dx = tx - x.px, dy = ty - x.py, d = Math.hypot(dx, dy);
+    if (d > 1) { x.px += dx / d * Math.min(d, sp); x.py += dy / d * Math.min(d, sp); }
+    else if (!x.retreat && rand() < 0.05 * dt) { x.gx = clamp(x.gx + randInt(-2, 2), 86, 95); x.gy = clamp(x.gy + randInt(-1, 1), 28, 35); }
+  }
+  Sim.invaders = Sim.invaders.filter((x) => !(x.retreat && x.px > (MW + 4) * TILE));
+}
+
+// UFO beams a resident up, and drops them back at the plaza hours later
+function tickAbduction() {
+  const now = Sim.minute;
+  if (Sim.ufoAbductAt && now >= Sim.ufoAbductAt) {
+    Sim.ufoAbductAt = 0;
+    const atEvent = Sim.agents.filter((a) => a.act && a.act.key === 'event' && !a.inside && !a.chat);
+    const cands = atEvent.length ? atEvent : Sim.agents.filter((a) => !a.inside && a.awake() && freeForCrisis(a) && !a.scripted);
+    if (cands.length) {
+      const a = pick(cands);
+      a.script('abducted'); a.path = [];
+      a.say('어…? 몸이 떠오른다?! 😱', 3);
+      Sim.abduct = { a, born: performance.now(), bornMin: now, x: a.px, y: a.py, hidden: false, returnAt: now + randInt(90, 240) };
+      logTown(`🛸 UFO가 빛을 쏘더니 ${josa(a.def.name, '을/를')} 빨아들였다!!`, a.id, true);
+      newsAll(Sim.agents.filter((x) => x !== a).slice(0, 5), `${josa(a.def.short, '이/가')} UFO에 끌려갔대요!!`, null, false);
+    }
+  }
+  const A = Sim.abduct;
+  if (!A) return;
+  if (!A.hidden && (performance.now() - A.born > 3000 || now - A.bornMin > 20)) { A.hidden = true; A.a.inside = UFO_PLACE; }
+  if (A.hidden && now >= A.returnAt) {
+    const a = A.a, s = pick(World.spots.fountain);
+    a.inside = null; a.tx = s.x; a.ty = s.y; a.px = s.x * TILE + 8; a.py = s.y * TILE + 8;
+    a.act = null; a.state = 'idle';
+    a.mood = randInt(20, 95); a.stat('abducted');
+    a.say(pick(['…방금 무슨 일이…?', '외계인이 돈까스를 좋아하더라…', '기억이 안 나… 👽']), 3.5);
+    a.note('UFO에 끌려갔다가 광장으로 돌아옴. 기억이 흐릿함');
+    logTown(`👽 ${josa(a.def.name, '이/가')} 번쩍이는 빛과 함께 중앙광장에 떨어졌다. 아무것도 기억 못 한다고…`, a.id, true);
+    Sim.abduct = null;
+  }
+}
+
+function tickCrisis(dt = 0) {
   const now = Sim.minute;
   tickWar();
+  tickInvaders(dt);
+  tickAbduction();
   for (const [id, end] of Object.entries(Sim.fires)) {
     if (now < end) continue;
     delete Sim.fires[id];

@@ -962,8 +962,9 @@ function simTick(realDt) {
     tickEvents();
     tickKidnap();
     tickLaw();
-    tickCrisis();
+    tickCrisis(step);
     tickDirector();
+    tickTourists(step);
     for (const a of Sim.agents) a.update(step);
     tryChats();
     insideSocial(step);

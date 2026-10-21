@@ -2,15 +2,17 @@
 const MW = 96, MH = 80;
 const T = {
   GRASS: 0, WATER: 1, ALLEY: 2, ASPHALT: 3, SIDEWALK: 4, CROSSWALK: 5, BRIDGE: 6,
-  PAVE: 7, TURF: 8, SOIL: 9, SAND: 10, STONE: 11, TRACK: 12, STEP: 13, FLOOR: 14, FIELD: 15,
+  PAVE: 7, TURF: 8, SOIL: 9, SAND: 10, STONE: 11, TRACK: 12, STEP: 13, FLOOR: 14, FIELD: 15, RAIL: 16,
 };
 const WALK_COST = {
   [T.GRASS]: 1.6, [T.ALLEY]: 1, [T.ASPHALT]: 5, [T.SIDEWALK]: 1, [T.CROSSWALK]: 1, [T.BRIDGE]: 1,
-  [T.PAVE]: 1, [T.TURF]: 1.3, [T.SOIL]: 1.8, [T.SAND]: 1.4, [T.TRACK]: 1, [T.STEP]: 1.5, [T.FLOOR]: 1, [T.FIELD]: 1.2,
+  [T.PAVE]: 1, [T.TURF]: 1.3, [T.SOIL]: 1.8, [T.SAND]: 1.4, [T.TRACK]: 1, [T.STEP]: 1.5, [T.FLOOR]: 1, [T.FIELD]: 1.2, [T.RAIL]: 2,
   [T.WATER]: Infinity, [T.STONE]: Infinity,
 };
 const NETWORK = new Set([T.ALLEY, T.SIDEWALK, T.CROSSWALK, T.BRIDGE, T.PAVE, T.TRACK, T.STEP]);
 
+const RAIL_Y = 47;                         // rails on rows 47-48
+const PLATFORM = { x0: 29, x1: 40, y: 46 }; // 팔팔역 platform
 const streamC = (x) => 57 + Math.round(1.2 * Math.sin(x / 9));
 
 // ---------------------------------------------------------------------------
@@ -32,6 +34,7 @@ const BUILDINGS = [
   { id: 'restaurant', kind: 'restaurant', x: 22, y: 21, w: 9, h: 6, top: 4, name: '팔팔식당' },
   { id: 'police', kind: 'police', x: 53, y: 21, w: 7, h: 6, top: 8, name: '팔팔파출소' },
   { id: 'store', kind: 'store', x: 61, y: 21, w: 7, h: 6, top: 0, name: '팔팔25' },
+  { id: 'station', kind: 'station', x: 29, y: 38, w: 11, h: 7, top: 16, name: '팔팔역' },
   { id: 'firestation', kind: 'firestation', x: 20, y: 38, w: 8, h: 7, top: 10, name: '팔팔소방서' },
   { id: 'hospital', kind: 'hospital', x: 6, y: 37, w: 11, h: 8, top: 14, name: '팔팔팔병원' },
   { id: 'gym', kind: 'gym', x: 30, y: 64, w: 11, h: 8, top: 4, name: '팔팔체육관' },
@@ -134,6 +137,10 @@ function buildWorld() {
 
   carveAlleys();
 
+  // railway (팔팔역): two rails west of the main road and a platform in front of the station
+  for (let x = 0; x <= 42; x++) { W.set(x, RAIL_Y, T.RAIL); W.set(x, RAIL_Y + 1, T.RAIL); }
+  for (let x = PLATFORM.x0; x <= PLATFORM.x1; x++) W.set(x, PLATFORM.y, T.PAVE);
+
   // spots
   const S = W.spots;
   const tilesOf = (pred) => {
@@ -150,6 +157,9 @@ function buildWorld() {
   for (let x = 64; x <= 69; x++) for (const y of [41, 46]) S.fountain.push({ x, y, face: y === 41 ? 'down' : 'up' });
   for (let y = 42; y <= 45; y++) { S.fountain.push({ x: 64, y, face: 'right' }); S.fountain.push({ x: 69, y, face: 'left' }); }
   S.stage = [{ x: 58, y: 38, face: 'down' }];
+  S.busstop = [{ x: 36, y: 34, face: 'up' }, { x: 37, y: 34, face: 'up' }, { x: 38, y: 34, face: 'up' }, { x: 35, y: 34, face: 'up' }];
+  S.platform = [];
+  for (let x = PLATFORM.x0; x <= PLATFORM.x1; x++) S.platform.push({ x, y: PLATFORM.y, face: 'down' });
   S.stall = [{ x: 76, y: 41, face: 'up' }, { x: 77, y: 41, face: 'up' }, { x: 78, y: 41, face: 'up' }];
   S.school_front = [];
   for (let x = 58; x <= 64; x++) for (let y = 74; y <= 75; y++) S.school_front.push({ x, y, face: 'up' });
@@ -372,6 +382,11 @@ function drawTile(g, x, y, t) {
       break;
     }
     case T.PAVE: {
+      if (y === PLATFORM.y && x >= PLATFORM.x0 && x <= PLATFORM.x1) {
+        R(g, px, py, 16, 16, '#c9c4bc'); R(g, px, py + 12, 16, 3, '#f2c94a'); R(g, px, py + 15, 16, 1, '#7a7468');
+        if (x % 2) R(g, px + 4, py + 4, 8, 4, '#b8b2a8');
+        break;
+      }
       R(g, px, py, 16, 16, '#d6c6ae');
       R(g, px, py + 7, 16, 1, '#bfae95'); R(g, px, py + 15, 16, 1, '#bfae95');
       R(g, px + ((y % 2) ? 3 : 11), py, 1, 7, '#bfae95'); R(g, px + ((y % 2) ? 11 : 3), py + 8, 1, 7, '#bfae95');
@@ -396,6 +411,14 @@ function drawTile(g, x, y, t) {
       if ((y === y0 || y === y1) && x >= x0 && x <= x1) R(g, px, y === y0 ? py : py + 15, 16, 1, '#f4f0e6');
       if ((x === x0 || x === x1) && y >= y0 && y <= y1) R(g, x === x0 ? px : px + 15, py, 1, 16, '#f4f0e6');
       if (x === 80 && y >= y0 && y <= y1) R(g, px + 15, py, 1, 16, '#f4f0e6');
+      break;
+    }
+    case T.RAIL: {
+      R(g, px, py, 16, 16, '#8a7a66');
+      for (let i = 0; i < 4; i++) R(g, px + ((h(i) * 15) | 0), py + ((h(i + 4) * 15) | 0), 1, 1, '#6e6050');
+      R(g, px + 2, py, 4, 16, '#6a4a2e'); R(g, px + 10, py, 4, 16, '#6a4a2e'); // sleepers
+      const top = y === RAIL_Y;
+      R(g, px, py + (top ? 10 : 4), 16, 2, '#c8ccd2'); R(g, px, py + (top ? 12 : 6), 16, 1, '#7a7e86');
       break;
     }
     case T.SOIL: {
@@ -431,7 +454,7 @@ function drawBuilding(b) {
   const lights = []; // relative px
   const fn = { villa: drawVilla, house: drawHouse, hanok: drawHanok, oneroom: drawOneroom, church: drawChurch, apartment: drawApartment,
     cafe: drawShop, restaurant: drawShop, studycafe: drawShop, police: drawShop, store: drawShop,
-    hospital: drawHospital, gym: drawGym, school: drawSchool, firestation: drawFireStation }[b.kind];
+    hospital: drawHospital, gym: drawGym, school: drawSchool, firestation: drawFireStation, station: drawStation }[b.kind];
   fn(g, b, Wpx, Hpx, lights);
   outline(g, Wpx, Hpx);
   return { canvas: c, lights };
@@ -712,6 +735,31 @@ function drawHospital(g, b, W, H, L) {
   L.push({ x: cx, y: gy + 14, r: 30, c: 'shop24', col: '#e8f6ff' });
   R(g, 10, gy + 6, 34, 12, '#e03a3a'); text(g, '응급실', 27, gy + 12.5, '#ffffff', 8);
   windowPane(g, W - 44, gy + 6, 30, 16, { frame: '#d8dce2' });
+}
+
+function drawStation(g, b, W, H, L) {
+  const top = b.top, cx = W / 2;
+  // clock tower
+  R(g, cx - 14, 0, 28, top + 4, '#d9dfe6'); R(g, cx - 16, 0, 32, 3, '#3f5f8a');
+  g.fillStyle = '#f8f8f4'; g.beginPath(); g.arc(cx, 10, 6, 0, 7); g.fill();
+  R(g, cx, 5, 1, 5, '#333'); R(g, cx, 10, 4, 1, '#333');
+  // curved glass roof
+  g.fillStyle = '#3f5f8a';
+  g.beginPath(); g.ellipse(cx, top + 22, W / 2, 20, 0, Math.PI, 0); g.fill();
+  for (let x = 6; x < W; x += 10) R(g, x, top + 6, 2, 16, 'rgba(160,200,235,0.55)');
+  R(g, 0, top + 20, W, 4, '#2c4568');
+  // facade
+  const fy = top + 24;
+  R(g, 0, fy, W, H - fy, '#eef1f4');
+  R(g, 0, fy, W, 14, '#3f5f8a');
+  text(g, '팔팔역  PALPAL STATION', cx, fy + 7.5, '#ffffff', 10);
+  L.push({ x: cx, y: fy + 7, r: 40, c: 'shop24', col: '#cfe4ff' });
+  for (let k = 0; k < 4; k++) { const x = 8 + k * 46; if (x + 30 > W) break; windowPane(g, x, fy + 20, 30, 18, { frame: '#c9d2dc' }); L.push({ x: x + 15, y: fy + 29, r: 18, c: 'shop24', col: '#e8f2ff' }); }
+  // entrance + departure board
+  const gy = H - 30;
+  R(g, cx - 22, gy, 44, 30, '#2e3440'); R(g, cx - 21, gy + 1, 20, 29, '#a8cce2'); R(g, cx + 1, gy + 1, 20, 29, '#a8cce2');
+  R(g, 8, gy + 4, 40, 14, '#1e2228'); text(g, '열차 도착', 28, gy + 11, '#ffd23a', 8);
+  R(g, W - 40, gy + 6, 30, 16, '#3fb58a'); text(g, '관광안내', W - 25, gy + 14, '#ffffff', 8);
 }
 
 function drawFireStation(g, b, W, H, L) {
