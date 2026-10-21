@@ -3,60 +3,7 @@ const Cam = { x: 0, y: 0, zoom: 2, follow: null };
 const Gfx = { canvas: null, ctx: null, ground: null, sprites: {}, heads: {}, light: null, lctx: null, dpr: 1, hover: null, selected: null };
 
 
-// ---- cars ----
-const CAR_COLORS = ['#e8e8e4', '#2e2e34', '#c9443a', '#3f6fb3', '#9aa0a8', '#f2c94a', '#3f8a5a'];
-const Cars = [];
-function carSprite(color, vertical) {
-  const w = vertical ? 18 : 30, h = vertical ? 30 : 20;
-  const [c, g] = mkCanvas(w, h);
-  if (!vertical) {
-    R(g, 3, 15, 6, 4, '#1e1e22'); R(g, 21, 15, 6, 4, '#1e1e22');
-    R(g, 1, 6, 28, 11, color); R(g, 6, 2, 17, 6, color);
-    R(g, 8, 3, 6, 4, '#8fbcd8'); R(g, 15, 3, 6, 4, '#8fbcd8');
-    R(g, 1, 13, 28, 1, shadeHex(color.startsWith('#') ? color : '#888888', 0.75));
-    R(g, 27, 8, 2, 3, '#fff2b0'); R(g, 1, 8, 2, 3, '#e04040');
-  } else {
-    R(g, 1, 4, 3, 6, '#1e1e22'); R(g, 14, 4, 3, 6, '#1e1e22'); R(g, 1, 20, 3, 6, '#1e1e22'); R(g, 14, 20, 3, 6, '#1e1e22');
-    R(g, 2, 1, 14, 28, color); R(g, 4, 6, 10, 6, '#8fbcd8'); R(g, 4, 19, 10, 4, '#8fbcd8'); R(g, 3, 12, 12, 7, shadeHex(color, 1.1));
-  }
-  outline(g, w, h);
-  return c;
-}
-function initCars() {
-  const lanes = [
-    { axis: 'h', dir: -1, fixed: 31 * TILE - 2 }, { axis: 'h', dir: 1, fixed: 33 * TILE - 2 },
-    { axis: 'v', dir: 1, fixed: 47 * TILE - 1 }, { axis: 'v', dir: -1, fixed: 49 * TILE - 1 },
-  ];
-  for (const lane of lanes) for (let i = 0; i < 2; i++) {
-    const col = CAR_COLORS[(Cars.length * 3) % CAR_COLORS.length];
-    const len = lane.axis === 'h' ? MW * TILE : MH * TILE;
-    Cars.push({ ...lane, pos: (i * 0.5 + rand() * 0.3) * len, len, speed: 55 + rand() * 25, canvas: carSprite(col, lane.axis === 'v'), wait: 0 });
-  }
-}
-function updateCars(realDt) {
-  const k = Math.min(Sim.speed, 4);
-  for (const car of Cars) {
-    const front = car.pos + car.dir * 20;
-    let blocked = false;
-    for (const a of Sim.agents) {
-      if (a.inside) continue;
-      if (World.t(a.tx, a.ty) !== T.CROSSWALK && World.t(a.tx, a.ty) !== T.ASPHALT) continue;
-      const along = car.axis === 'h' ? a.px : a.py, across = car.axis === 'h' ? a.py : a.px;
-      const d = (along - front) * car.dir;
-      if (d > -6 && d < 26 && Math.abs(across - car.fixed) < 34) { blocked = true; break; }
-    }
-    if (!blocked) car.pos += car.dir * car.speed * k * realDt;
-    if (car.pos < -40) car.pos += car.len + 80;
-    if (car.pos > car.len + 40) car.pos -= car.len + 80;
-  }
-}
-function carDrawable(car) {
-  const cw = car.canvas.width, ch = car.canvas.height;
-  let x, y;
-  if (car.axis === 'h') { x = car.pos - cw / 2; y = car.fixed - ch / 2 - 2; }
-  else { x = car.fixed - cw / 2; y = car.pos - ch / 2; }
-  return { canvas: car.canvas, x, y, baseY: y + ch, flip: car.axis === 'h' && car.dir < 0, flipV: car.axis === 'v' && car.dir < 0, car };
-}
+// cars, traffic lights and emergency vehicles live in traffic.js
 
 // ---- lighting ----
 function darkness(h) {
@@ -119,19 +66,21 @@ function render(now) {
   const list = [];
   const inView = (x, y, w, h) => x + w > cx && x < cx + vw && y + h > cy && y < cy + vh;
   for (const o of World.objects) if (inView(o.x, o.y, o.canvas.width, o.canvas.height)) list.push(o);
-  for (const car of Cars) { const d = carDrawable(car); if (inView(d.x, d.y, 32, 32)) list.push(d); }
+  for (const d of trafficDrawables()) if (d.draw || inView(d.x, d.y, d.canvas.width, d.canvas.height)) list.push(d);
   for (const a of Sim.agents) if (!a.inside && inView(a.px - 16, a.py - 28, 32, 34)) list.push({ agent: a, baseY: a.py + 6 });
   const cat = catDrawable(now); if (cat) list.push(cat);
   list.sort((p, q) => p.baseY - q.baseY);
 
   for (const d of list) {
     if (d.agent) { drawAgent(ctx, d.agent); continue; }
+    if (d.draw) { d.draw(ctx, now); continue; }
     if (d.flip || d.flipV) {
       ctx.save();
       ctx.translate(d.x + (d.flip ? d.canvas.width : 0), d.y + (d.flipV ? d.canvas.height : 0));
       ctx.scale(d.flip ? -1 : 1, d.flipV ? -1 : 1);
       ctx.drawImage(d.canvas, 0, 0); ctx.restore();
     } else ctx.drawImage(d.canvas, d.x, d.y);
+    if (d.post) d.post(ctx, now);
   }
 
   drawCrisisWorld(ctx, now, cx, cy, vw, vh);
@@ -160,9 +109,7 @@ function render(now) {
     L.fillStyle = `rgba(14,18,52,${dark})`; L.fillRect(0, 0, lc.width, lc.height);
     L.globalCompositeOperation = 'destination-out';
     const glows = [];
-    const lights = World.lights.concat(Cars.map((car) => (car.axis === 'h'
-      ? { x: car.pos + car.dir * 18, y: car.fixed - 2, r: 30, c: 'lamp', car: true }
-      : { x: car.fixed, y: car.pos + car.dir * 18, r: 30, c: 'lamp', car: true }))).concat(crisisLights());
+    const lights = World.lights.concat(trafficLights(), crisisLights());
     for (const l of lights) {
       const sx = (l.x - cx) * z, sy = (l.y - cy) * z, r = l.r * z;
       if (sx < -r || sy < -r || sx > cv.width + r || sy > cv.height + r) continue;
@@ -178,7 +125,7 @@ function render(now) {
       let col = l.col || '#ffcf7a';
       if (l.c === 'cross' || l.c === 'hcross') col = '#ff2a2a';
       if (l.c === 'fire') col = '#ff7a20';
-      if (l.c === 'siren') col = Math.floor(now / 400) % 2 ? '#ff3030' : '#3060ff';
+      if (l.c === 'siren') col = Math.floor(now / (l.car ? 250 : 400)) % 2 ? '#ff3030' : '#3060ff';
       const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r * 0.8);
       g.addColorStop(0, hexA(col, 0.2 * dark / 0.66)); g.addColorStop(1, hexA(col, 0));
       ctx.fillStyle = g; ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
@@ -239,6 +186,11 @@ function drawAgent(ctx, a) {
   }
   if (!img) return;
   const col = a.state === 'walking' ? [0, 1, 2, 1][Math.floor(a.walkPhase) % 4] : 1;
+  if (a.act && a.act.key === 'knocked') {
+    ctx.save(); ctx.translate(Math.round(a.px), Math.round(a.py)); ctx.rotate(-Math.PI / 2);
+    ctx.drawImage(img, 32, 0, 32, 32, -26, -16, 32, 32); ctx.restore();
+    return;
+  }
   ctx.drawImage(img, col * 32, DIR_ROW[a.dir] * 32, 32, 32, Math.round(a.px - 16), Math.round(a.py - 26), 32, 32);
 }
 
@@ -298,6 +250,7 @@ function drawOverlays(ctx, cx, cy, z, now) {
       ctx.fillStyle = '#2a1e14'; ctx.fillText(a.bubble.text, sx, by + 0.5 * dpr);
     }
   }
+  trafficOverlays(ctx, cx, cy, z, now);
 }
 
 function clampCam() {

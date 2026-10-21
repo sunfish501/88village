@@ -32,6 +32,7 @@ const BUILDINGS = [
   { id: 'restaurant', kind: 'restaurant', x: 22, y: 21, w: 9, h: 6, top: 4, name: '팔팔식당' },
   { id: 'police', kind: 'police', x: 53, y: 21, w: 7, h: 6, top: 8, name: '팔팔파출소' },
   { id: 'store', kind: 'store', x: 61, y: 21, w: 7, h: 6, top: 0, name: '팔팔25' },
+  { id: 'firestation', kind: 'firestation', x: 20, y: 38, w: 8, h: 7, top: 10, name: '팔팔소방서' },
   { id: 'hospital', kind: 'hospital', x: 6, y: 37, w: 11, h: 8, top: 14, name: '팔팔팔병원' },
   { id: 'gym', kind: 'gym', x: 30, y: 64, w: 11, h: 8, top: 4, name: '팔팔체육관' },
   { id: 'school', kind: 'school', x: 54, y: 64, w: 15, h: 9, top: 22, name: '팔팔고등학교' },
@@ -430,7 +431,7 @@ function drawBuilding(b) {
   const lights = []; // relative px
   const fn = { villa: drawVilla, house: drawHouse, hanok: drawHanok, oneroom: drawOneroom, church: drawChurch, apartment: drawApartment,
     cafe: drawShop, restaurant: drawShop, studycafe: drawShop, police: drawShop, store: drawShop,
-    hospital: drawHospital, gym: drawGym, school: drawSchool }[b.kind];
+    hospital: drawHospital, gym: drawGym, school: drawSchool, firestation: drawFireStation }[b.kind];
   fn(g, b, Wpx, Hpx, lights);
   outline(g, Wpx, Hpx);
   return { canvas: c, lights };
@@ -711,6 +712,33 @@ function drawHospital(g, b, W, H, L) {
   L.push({ x: cx, y: gy + 14, r: 30, c: 'shop24', col: '#e8f6ff' });
   R(g, 10, gy + 6, 34, 12, '#e03a3a'); text(g, '응급실', 27, gy + 12.5, '#ffffff', 8);
   windowPane(g, W - 44, gy + 6, 30, 16, { frame: '#d8dce2' });
+}
+
+function drawFireStation(g, b, W, H, L) {
+  const top = b.top, cx = W / 2;
+  // roof siren
+  R(g, cx - 6, top - 10, 12, 8, '#e03a3a'); R(g, cx - 7, top - 3, 14, 3, '#5a5a5a');
+  L.push({ x: cx, y: top - 6, r: 28, c: 'siren' });
+  R(g, 0, top, W, 8, '#b5b0a6'); R(g, 2, top + 2, W - 4, 4, '#9a968c');
+  // upper floor brick + windows
+  const uy = top + 8;
+  brickWall(g, 0, uy, W, 36, '#b8483a');
+  for (let x = 8; x + 22 <= W - 4; x += 30) { windowPane(g, x, uy + 8, 22, 14); L.push({ x: x + 11, y: uy + 15, r: 15, c: 'win' }); }
+  // sign
+  const sy = uy + 36;
+  R(g, 0, sy, W, 13, '#f4f4f0'); R(g, 0, sy + 12, W, 1, 'rgba(0,0,0,0.3)');
+  text(g, `${b.name} 119`, cx, sy + 7, '#c8302a', 10);
+  L.push({ x: cx, y: sy + 6, r: 34, c: 'shop24', col: '#ffd0c8' });
+  // two garage bays
+  const gy = sy + 13, gh = H - gy;
+  R(g, 0, gy, W, gh, '#d9d4cc');
+  for (const bx of [6, W / 2 + 4]) {
+    const bw = W / 2 - 10;
+    R(g, bx - 2, gy + 3, bw + 4, gh - 3, '#7a1f1a');
+    R(g, bx, gy + 5, bw, gh - 5, '#e4e0d8');
+    for (let y = gy + 7; y < H; y += 4) R(g, bx, y, bw, 1, '#b8b2a8');
+    R(g, bx + 4, gy + 8, bw - 8, 6, '#8fbcd8');
+  }
 }
 
 function drawGym(g, b, W, H, L) {

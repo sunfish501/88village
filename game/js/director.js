@@ -30,7 +30,7 @@ const DRAMATIC = Object.keys(CRISIS);
 const GATHER_KINDS = { cat: 1, flea: 1, busking: 1, chicken: 1 };
 const GATHER_CENTERS = ['plaza', 'fountain', 'stage', 'field', 'school_front'];
 const EVENT_KINDS = ['gather', 'cat', 'flea', 'busking', 'chicken', 'rain', ...DRAMATIC];
-const FIRE_TARGETS = () => BUILDINGS.filter((b) => !b.virtual && b.id !== 'police').map((b) => b.id);
+const FIRE_TARGETS = () => BUILDINGS.filter((b) => !b.virtual && b.id !== 'police' && b.id !== 'firestation').map((b) => b.id);
 
 function directorInit() {
   const S = World.spots;
@@ -198,7 +198,7 @@ function buildDirectorInput(day) {
     주민: Sim.agents.map(residentSummary),
     연애: couples,
     최근_마을_소식: Sim.townLog.filter((l) => !l.text.includes('Lv.')).slice(0, 14).map((l) => `${dayOf(l.t)}일 ${l.text}`),
-    최근_범죄: Law.records.slice(0, 3).map((r) => `${Sim.byId[r.culprit].def.short} ${r.type} → ${r.outcome}`),
+    최근_범죄: Law.records.slice(0, 3).map((r) => `${r.culprit ? Sim.byId[r.culprit].def.short : r.culpritName} ${r.type} → ${r.outcome}`),
     dramatic_allowed: Sim.dramaOk[day],
     마지막_대형사건: Sim.lastDrama > 0 ? `${Sim.lastDrama}일` : '없음',
     건물_목록: BUILDINGS.filter((b) => !b.virtual).map((b) => `${b.id}:${b.name}`),
@@ -334,6 +334,7 @@ function startCrisis(ev) {
       const U = Sim.byId.jung_uigyeom;
       if (freeForCrisis(U) && !Law.active) { U.script('firefight', { target: b.door, dur: ev.end - Sim.minute }); U.say('제가 막겠습니다!! 🧯', 3); }
       ev.building = b.id;
+      if (typeof Traffic !== 'undefined') Traffic.dispatchFire(b); // 팔팔소방서 fire truck
       break;
     }
     case 'outbreak': {

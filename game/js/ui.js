@@ -169,13 +169,13 @@ function openModal(html, opts = {}) {
 }
 function closeModal() { $('#modal').hidden = true; UI.onConfirm = null; }
 
-const CRIME_LABEL = { theft: '🫳 절도', trespass: '🚪 무단출입', attempt: '🔒 무단출입 미수', kidnap: '🚨 납치', kidnap_cop: '🤦 경찰 납치 미수' };
+const CRIME_LABEL = { traffic: '🚗 교통사고', theft: '🫳 절도', trespass: '🚪 무단출입', attempt: '🔒 무단출입 미수', kidnap: '🚨 납치', kidnap_cop: '🤦 경찰 납치 미수' };
 function showLaw() {
   const laws = PALPAL_LAWS.map((l) => `<li><b>${l.no} ${esc(l.title)}</b><br>${esc(l.text)}</li>`).join('');
   const rules = VILLAGE_RULES.map((r) => `<li>${esc(r)}</li>`).join('');
   const recs = Law.records.slice(0, 12).map((r) => {
-    const c = Sim.byId[r.culprit], v = r.victim && Sim.byId[r.victim];
-    return `<li><time>${dayOf(r.t)}일 ${clockStr(r.t)}</time> ${CRIME_LABEL[r.type] || r.type} · <b>${c.def.short}</b>${v ? ` → ${v.def.short}` : ''}${r.item ? ` (${esc(r.item)})` : ''}<br><small>⚖️ ${esc(r.outcome)}</small></li>`;
+    const c = r.culprit ? Sim.byId[r.culprit].def.short : r.culpritName, v = r.victim && Sim.byId[r.victim];
+    return `<li><time>${dayOf(r.t)}일 ${clockStr(r.t)}</time> ${CRIME_LABEL[r.type] || r.type} · <b>${c}</b>${v ? ` → ${v.def.short}` : ''}${r.item ? ` (${esc(r.item)})` : ''}<br><small>⚖️ ${esc(r.outcome)}</small></li>`;
   }).join('') || '<li>아직 범죄 기록이 없어요. 평화로운 팔팔마을 🌷</li>';
   const couples = Object.entries(Sim.status).map(([k, st]) => {
     const [a, b] = k.split('|').map((id) => Sim.byId[id].def.short);
