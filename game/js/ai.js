@@ -23,7 +23,7 @@ function providerOfKey(key) {
 function loadSettings() {
   const provider = LOCAL.provider || providerOfKey(LOCAL.key) || AI_CONFIG.defaultProvider;
   const base = {
-    enabled: true, key: '', provider, model: LOCAL.model || AI_CONFIG.providers[provider].defaultModel,
+    enabled: true, director: true, key: '', provider, model: LOCAL.model || AI_CONFIG.providers[provider].defaultModel,
     freq: 'normal', proxy: AI_CONFIG.proxyUrl,
   };
   let saved = {};
@@ -101,6 +101,39 @@ const CHAT_SCHEMA = {
   additionalProperties: false,
 };
 
+const DIRECTOR_PROMPT = `너는 픽셀 아트 방치형 게임 "팔팔마을"의 운명을 정하는 감독이다. 내일 하루 마을에 무슨 일이 일어날지 정하고 마을 신문 "팔팔일보" 1면을 쓴다.
+
+## 출력
+- headline: 내일 팔팔일보 1면 헤드라인 (30자 이내, 자극적이고 재밌게).
+- summary: 내일 마을 분위기 요약 (100자 이내).
+- events: 내일 일어날 이벤트 0~3개.
+- resident_notes: 주민 8명 각각에게 내일 신경 쓸 일 (주민마다 1개, 30자 이내). 관계·연애·갈등·최근 소식을 이어받아 이야기가 계속 흘러가게 만든다.
+
+## 이벤트 종류 (kind)
+- gather: 직접 만든 모임·사건. title을 재밌게 짓고 center(plaza, fountain, stage, field, school_front)에 사람들이 모인다. cheers는 구경꾼 대사 3~5개(15자 이내).
+- cat, flea, busking, chicken: 길고양이 출몰, 플리마켓, 버스킹, 치킨 파티.
+- rain: 소나기.
+- 대형 사건: 입력의 dramatic_allowed가 true면 아래 중 정확히 1개를 반드시 넣고, false면 절대 넣지 않는다:
+  storm 태풍, blackout 정전, fire 화재(building에 불이 날 건물 id), flood 하천 범람, outbreak 독감 유행, ufo UFO 출몰, war 옆 동네 칠칠마을과의 전쟁.
+- 대형 사건 중 war는 가끔만 고른다(다른 사건과 골고루). 사이렌, 폭발, 부상자가 나오는 자극적인 소동이지만 만화처럼 다루고, 사망이나 잔혹한 묘사는 하지 않는다. 끝은 평화 협정.
+- start_hour는 7~22, duration_hours는 0.5~8 사이 숫자. 쓰지 않는 필드는 center "none", building "none", cheers [] 로 둔다.
+
+## 규칙
+- 주말과 평일 분위기를 구분한다. 매일 같은 이벤트를 반복하지 말고, 최근 소식과 연결되는 사건을 만든다.
+- 하세린·곽현지(19세 고등학생)는 연애 관련 내용에서 제외한다.`;
+
+const PLANNER_PROMPT = `너는 픽셀 아트 방치형 게임 "팔팔마을"의 하루 일과 작가다. 주민 한 명의 내일 일과표를 짠다.
+
+## 규칙
+- blocks: 시간 블록 목록. from/to는 시각(0~24, 소수 가능: 7.5 = 7시 30분). 겹치지 않게 시간 순서로. 블록이 없는 시간은 잠자는 시간이다.
+- activity는 입력의 가능한_활동 중에서만 고른다. free_time은 그 시간에 자유롭게 돌아다니는 시간이다.
+- 기본_일과의 뼈대(직업, 등교, 출퇴근, 가게 영업 시간)는 지키고, 성격·기분·관계·약속·감독_메모·마을 일정에 맞춰 나머지를 매일 조금씩 다르게 바꾼다. 똑같이 복사하지 않는다.
+- 약속 시간과 마을 일정 시간에는 free_time 블록을 두어 참여할 수 있게 한다.
+- 주인공의 고유 습관은 유지한다(예: 범기 퇴근길 맥주, 승화 출근길 커피, 이준 평일 15.6~16.6 school_revisit, 의겸 파출소 생활).
+- note: 블록마다 짧은 속마음 (15자 이내).
+- mood_line: 내일 아침 이 사람의 한마디 (30자 이내, 말투 반영).
+- goal: 내일의 작은 목표 (20자 이내).`;
+
 function profile(a) {
   const d = a.def, p = partnerOf(a);
   return {
@@ -156,29 +189,32 @@ async function getClient() {
   return st.client;
 }
 
+// a prompt type: system text + output schema
+const CHAT_TASK = { system: SYSTEM_PROMPT, schema: CHAT_SCHEMA, name: 'npc_chat', maxTokens: 600 };
+
 // OpenRouter (OpenAI-style chat completions) request body
-function buildOpenRouter(userText, maxTokens = 600) {
+function buildOpenRouter(task, userText) {
   return {
     provider: 'openrouter', // read by the server proxy; ignored by OpenRouter
     model: st.settings.model,
-    max_tokens: maxTokens,
+    max_tokens: task.maxTokens,
     temperature: 0.9,
-    messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userText }],
-    response_format: { type: 'json_schema', json_schema: { name: 'npc_chat', strict: true, schema: CHAT_SCHEMA } },
+    messages: [{ role: 'system', content: task.system }, { role: 'user', content: userText }],
+    response_format: { type: 'json_schema', json_schema: { name: task.name, strict: true, schema: task.schema } },
     reasoning: { enabled: false },
     usage: { include: true },
   };
 }
 
-function buildParams(userText, maxTokens = 2000) {
-  if (st.settings.provider === 'openrouter') return buildOpenRouter(userText);
+function buildParams(task, userText) {
+  if (st.settings.provider === 'openrouter') return buildOpenRouter(task, userText);
   const model = st.settings.model;
   const params = {
     model,
-    max_tokens: maxTokens,
-    system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+    max_tokens: Math.max(2000, task.maxTokens),
+    system: [{ type: 'text', text: task.system, cache_control: { type: 'ephemeral' } }],
     messages: [{ role: 'user', content: userText }],
-    output_config: { effort: AI_CONFIG.effort, format: { type: 'json_schema', schema: CHAT_SCHEMA } },
+    output_config: { effort: AI_CONFIG.effort, format: { type: 'json_schema', schema: task.schema } },
   };
   // server-side refusal fallback (Claude API): route declined requests to Anthropic's recommended model
   if (model === 'claude-opus-5-5' || model === 'claude-sonnet-5-5') {
@@ -252,10 +288,11 @@ function handleError(e) {
   console.warn('[NpcAI]', st.lastError, e);
 }
 
-async function request(userText, maxTokens) {
-  st.inflight++; st.recent.push(performance.now()); st.dayCalls++; st.calls++;
+async function request(userText, task = CHAT_TASK, counted = true) {
+  st.inflight++; st.recent.push(performance.now()); st.calls++;
+  if (counted) st.dayCalls++;
   try {
-    const r = readResponse(await callModel(buildParams(userText, maxTokens)));
+    const r = readResponse(await callModel(buildParams(task, userText)));
     track(r);
     if (r.refused || !r.text) return null;
     st.lastError = '';
@@ -324,10 +361,34 @@ const NpcAI = {
     const res = await request(JSON.stringify(ctx.input));
     return res ? applyResult(a, b, res, ctx) : null;
   },
+  directorOn: () => configured() && st.settings.director !== false && performance.now() >= st.pausedUntil,
+  // AI director + per-resident planners for one game day (results applied as they arrive)
+  async planDay(day) {
+    st.planning = (st.planning || 0) + 1;
+    try {
+      const dirTask = { system: DIRECTOR_PROMPT, schema: directorSchema(), name: 'palpal_director', maxTokens: 1500 };
+      const dir = await request(JSON.stringify(buildDirectorInput(day)), dirTask, false);
+      applyDirector(day, dir);
+      const queue = Sim.agents.slice();
+      const worker = async () => {
+        while (queue.length) {
+          const a = queue.shift();
+          const task = { system: PLANNER_PROMPT, schema: plannerSchema(a), name: 'palpal_plan', maxTokens: 900 };
+          const res = await request(JSON.stringify(buildPlannerInput(a, day)), task, false);
+          applyPlan(day, a, res);
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+      const n = Object.keys(Sim.aiPlans[day] || {}).length;
+      if (n) logTown(`🤖 ${dateStr((day - 1) * 1440)} 일과표 도착: 주민 ${n}명의 하루를 AI가 새로 짰다`);
+    } finally {
+      st.planning--;
+    }
+  },
   status() {
     const s = st.settings;
     return {
-      enabled: s.enabled, configured: configured(), mode: s.proxy ? 'proxy' : s.key ? 'key' : activeKey() ? 'local' : 'none',
+      enabled: s.enabled, director: s.director !== false, planning: st.planning || 0, configured: configured(), mode: s.proxy ? 'proxy' : s.key ? 'key' : activeKey() ? 'local' : 'none',
       keyHint: s.key ? `${s.key.slice(0, 7)}…${s.key.slice(-4)}` : '', provider: s.provider, model: s.model, freq: s.freq, proxy: s.proxy,
       calls: st.calls, dayCalls: st.dayCalls, inTok: st.inTok, outTok: st.outTok, cost: st.cost, errors: st.errors,
       lastError: st.lastError, paused: performance.now() < st.pausedUntil,

@@ -33,6 +33,7 @@ function dateStr(m) {
   return `${SEASONS[Math.floor(d / 28) % 4]} ${(d % 28) + 1}일 (${WEEKDAYS[d % 7]})`;
 }
 function isOpen(id, m = Sim.minute) {
+  if (Sim.fires && (Sim.fires[id] || 0) > m) return false;
   const f = OPEN_HOURS[id];
   return f ? f(weekdayOf(m), hourOf(m)) : true;
 }
@@ -60,7 +61,8 @@ function dayMatch(d, wd) {
 const resolveHour = (v) => (typeof v === 'string' ? Sim.dayVars[v] : v);
 function currentBlock(def, m = Sim.minute) {
   const wd = weekdayOf(m), h = hourOf(m);
-  for (const b of def.routine) {
+  const plan = Sim.aiPlans && Sim.aiPlans[dayOf(m)] && Sim.aiPlans[dayOf(m)][def.id];
+  for (const b of plan || def.routine) {
     if (!dayMatch(b.d, wd)) continue;
     if (b.if && !Sim.dayVars[b.if]) continue;
     if (b.ifNot && Sim.dayVars[b.ifNot]) continue;
@@ -103,7 +105,7 @@ class Agent {
     if (this.chat) return `💬 ${josa(this.chat.other.def.short, '과/와')} 대화 중`;
     if (!this.act) return '🤔 고민 중';
     const a = this.act.def;
-    if (this.state === 'walking' && !['kidnapped', 'arrested', 'run', 'evening_run', 'patrol', 'search', 'rescue', 'escort', 'kidnap_home', 'kidnap_hunt', 'arrest_go', 'community_service'].includes(this.act.key))
+    if (this.state === 'walking' && !['kidnapped', 'arrested', 'run', 'evening_run', 'patrol', 'search', 'rescue', 'escort', 'kidnap_home', 'kidnap_hunt', 'arrest_go', 'community_service', 'defend', 'evacuate', 'firefight'].includes(this.act.key))
       return `🚶 ${a.label} 하러 가는 중`;
     if (this.act.key === 'date' && this.act.partner) return `💕 ${josa(this.act.partner.def.short, '과/와')} 데이트 중`;
     if (this.act.key === 'promise_meet' && this.act.partner) return `🤝 ${josa(this.act.partner.def.short, '과/와')} 약속 지키는 중`;
@@ -156,7 +158,9 @@ class Agent {
       key = def.alt || 'plaza_walk'; def = ACTIVITIES[key];
     }
     // rain: skip outdoor leisure
-    if (Sim.weather === 'rain' && !def.busy && !def.inside && key !== 'event') {
+    if (def.loc === 'river' && Sim.flood > Sim.minute && !def.sticky) { key = 'plaza_walk'; def = ACTIVITIES[key]; }
+    if (def.inside && !def.sticky && def.loc === 'home' && burning(this.home.id)) { key = 'plaza_walk'; def = ACTIVITIES[key]; }
+    if ((Sim.weather === 'rain' || Sim.weather === 'storm') && !def.busy && !def.inside && key !== 'event') {
       key = pick(['home_relax', 'store_shop', isOpen('cafe') ? 'cafe_visit' : 'home_relax']); def = ACTIVITIES[key];
     }
     this.releaseSpot();
@@ -861,6 +865,7 @@ function planDay() {
   const r = () => rand();
   const late = randInt(0, 50) / 60;
   const overtime = !weekend && r() < 0.2;
+  const carried = Sim.events.filter((e) => e.carry && e.start > Sim.minute); // e.g. outbreak patients after midnight
   Sim.dayVars = {
     serinLate: !weekend && r() < 0.35,
     seunghwaOvertime: overtime,
@@ -884,6 +889,13 @@ function planDay() {
   }
   if (r() < 0.12) Sim.events.push({ uid: eventUid++, kind: 'sick', start: base + randInt(9, 16) * 60 });
   if (r() < 0.06) Sim.events.push({ uid: eventUid++, kind: 'injury', start: base + randInt(8, 15) * 60 });
+  const day = dayOf(Sim.minute);
+  if (Sim.aiEvents[day]) {
+    // the AI director already wrote today's events
+    Sim.events = Sim.events.filter((e) => e.kind === 'sick' || e.kind === 'injury').concat(Sim.aiEvents[day].map((e) => ({ ...e, uid: eventUid++ })));
+  } else rollRandomCrisis(day);
+  syncPlanVars(day);
+  Sim.events.push(...carried);
   Sim.events.sort((p, q) => p.start - q.start);
   dailyRomance();
 }
@@ -898,7 +910,7 @@ function tickEvents() {
     logTown(`${ev.emoji} '${ev.title}' 끝! (${att.length}명 참여)`);
     Sim.activeEvent = null;
   }
-  if (Sim.weather === 'rain' && now >= Sim.rainEnd) { Sim.weather = null; logTown('🌤️ 비가 그쳤다'); }
+  if (Sim.weather && now >= Sim.rainEnd) { logTown(Sim.weather === 'storm' ? '🌤️ 태풍이 지나갔다' : '🌤️ 비가 그쳤다'); Sim.weather = null; }
   while (Sim.events.length && now >= Sim.events[0].start) {
     const ev = Sim.events.shift();
     if (ev.kind === 'rain') {
@@ -906,7 +918,8 @@ function tickEvents() {
       logTown('🌧️ 갑자기 소나기가 쏟아진다!', null, true);
       for (const a of Sim.agents) if (a.act && !a.busy && !a.inside) a.endAct();
     } else if (ev.kind === 'sick') {
-      const cands = Sim.agents.filter((a) => a.awake() && !a.scripted && !(a.inside && a.inside.virtual) && !a.chat);
+      let cands = Sim.agents.filter((a) => a.awake() && !a.scripted && !(a.inside && a.inside.virtual) && !a.chat);
+      if (ev.target) cands = cands.filter((a) => a.id === ev.target);
       if (cands.length) {
         const a = pick(cands);
         a.endAct(); a.script('sick', { dur: randInt(60, 120) });
@@ -920,7 +933,10 @@ function tickEvents() {
         logTown(`🤕 ${josa(H.def.name, '이/가')} 훈련하다 발목을 삐끗해서 병원에 갔다`, H.id, true);
         H.note('발목 삐끗 → 병원');
       }
+    } else if (ev.crisis && !ev.gather) {
+      if (now < ev.end) startCrisis(ev);
     } else if (ev.gather && !Sim.activeEvent && now < ev.end) {
+      if (ev.crisis) startCrisis(ev);
       Sim.activeEvent = ev;
       logTown(`${ev.emoji} ${ev.title}!`, null, true);
       for (const a of Sim.agents) if (a.act && !a.busy && !a.chat) a.endAct();
@@ -946,6 +962,8 @@ function simTick(realDt) {
     tickEvents();
     tickKidnap();
     tickLaw();
+    tickCrisis();
+    tickDirector();
     for (const a of Sim.agents) a.update(step);
     tryChats();
     insideSocial(step);
@@ -958,6 +976,8 @@ function newDay() {
   if (Sim.kid) resolveKidnap(true);
   planDay();
   if (!first) logTown(`🌅 ${dateStr(Sim.minute)} 아침이 밝았다${isWeekend(Sim.minute) ? ' (주말!)' : ''}`);
+  announcePaper(Sim.day);
+  for (const o of [Sim.aiPlans, Sim.aiEvents, Sim.paper]) for (const d of Object.keys(o)) if (+d < Sim.day - 1) delete o[d];
 }
 
 function initSim() {
@@ -969,6 +989,7 @@ function initSim() {
     a.rel[b.id] = init[k] ?? Math.round(4 + hash2(k.length, k.charCodeAt(3) + k.charCodeAt(9)) * 8);
   }
   lawInit();
+  directorInit();
   newDay();
   logTown(`🏘️ ${TOWN_NAME}에 오신 걸 환영합니다! 📜 팔팔법을 지켜주세요`);
 }
@@ -976,7 +997,7 @@ function initSim() {
 function saveGame() {
   if (Sim.resetting) return;
   const data = {
-    v: 3, savedAt: Date.now(), minute: Sim.minute, law: lawSave(), mem: memSave(), speed: Sim.speed, townLog: Sim.townLog.slice(0, 80), status: Sim.status, dayVars: Sim.dayVars, eventUid,
+    v: 3, savedAt: Date.now(), minute: Sim.minute, law: lawSave(), mem: memSave(), director: directorSave(), speed: Sim.speed, townLog: Sim.townLog.slice(0, 80), status: Sim.status, dayVars: Sim.dayVars, eventUid,
     agents: Sim.agents.map((a) => ({ id: a.id, xp: a.xp, energy: a.energy, mood: a.mood, rel: a.rel, stats: a.stats, diary: a.diary.slice(0, 20) })),
   };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable */ }
@@ -992,7 +1013,7 @@ function loadGame() {
     const a = Sim.byId[s.id]; if (!a) continue;
     Object.assign(a, { xp: s.xp, energy: s.energy, mood: s.mood, rel: s.rel, stats: s.stats || {}, diary: s.diary || [] });
   }
-  lawLoad(data.law); memLoad(data.mem);
+  lawLoad(data.law); memLoad(data.mem); directorLoad(data.director);
   Sim.day = 0; newDay(); Sim.dayVars = { ...Sim.dayVars, ...(data.dayVars || {}) };
   Sim.events = Sim.events.filter((e) => e.start > Sim.minute);
   Sim.dates = Sim.dates.filter((d) => d.at > Sim.minute);

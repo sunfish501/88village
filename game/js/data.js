@@ -101,6 +101,13 @@ const ACTIVITIES = {
   jailed:       { label: '유치장 신세', emoji: '🔒', loc: 'police', inside: true, busy: true, sticky: true, mood: -0.02, stat: 'jailed' },
   shaken:       { label: '놀란 마음 진정시키는 중', emoji: '😵', loc: 'home', inside: true, busy: true, sticky: true, energy: 0.1 },
 
+  // crises (director.js)
+  shelter:      { label: '체육관으로 대피 중', emoji: '🛡️', loc: 'gym', inside: true, busy: true, sticky: true, mood: -0.02 },
+  defend:       { label: '마을 입구 방어전', emoji: '⚔️', loc: 'warfront', roam: true, busy: true, sticky: true, energy: -0.05, xp: { body: 0.6 } },
+  injured:      { label: '부상 치료 중', emoji: '🩹', loc: 'hospital', inside: true, busy: true, sticky: true, stat: 'injured' },
+  evacuate:     { label: '화재 대피', emoji: '🧯', loc: 'plaza', roam: true, busy: true, sticky: true },
+  firefight:    { label: '화재 진압 중', emoji: '🧯', busy: true, sticky: true },
+
   // scripted (sticky: routine changes don't interrupt)
   kidnap_hunt:  { label: '…수상한 움직임', emoji: '🕵️', busy: true, sticky: true },
   kidnap_home:  { label: '"같이 가자~" 귀가 중', emoji: '😏', busy: true, sticky: true },
@@ -277,7 +284,7 @@ const STAT_LABELS = {
   beer: '🍺 퇴근 맥주', cupramen: '🍜 컵라면', donkatsu: '🍱 돈까스', chicken: '🍗 닭가슴살', overtime: '😩 야근',
   snack: '🍗 야식', flirts: '😏 플러팅', confess: '💌 고백', dates: '💕 데이트', hospital: '🏥 병원', store: '🍙 편의점 끼니',
   coffee: '☕ 출근 커피', promises: '🤝 약속 지킴', promiseBroken: '😤 약속 펑크', crimes: '⚖️ 범죄', thefts: '🫳 절도', trespass: '🚪 무단출입',
-  essays: '📝 반성문', service: '🧹 사회봉사', jailed: '🔒 유치장', cheats: '💔 바람', breakups: '💔 이별', pwShared: '🔑 비번 알려줌',
+  essays: '📝 반성문', war: '⚔️ 전쟁 겪음', injured: '🩹 부상', fires: '🧯 화재 진압', service: '🧹 사회봉사', jailed: '🔒 유치장', cheats: '💔 바람', breakups: '💔 이별', pwShared: '🔑 비번 알려줌',
 };
 
 const GREETINGS_DAY = ['안녕하세요!', '오, 반가워요!', '어디 가세요?', '날씨 좋네요~'];

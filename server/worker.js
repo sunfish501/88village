@@ -9,7 +9,8 @@ const ALLOWED_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-
 const FALLBACK_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5']; // server-side refusal fallback ("default")
 const MAX_TOKENS = 2000;
 const MAX_BODY = 60000;
-const GAME_PROMPT_PREFIX = '너는 픽셀 아트 방치형 게임 "팔팔마을"의 대사 작가다.';
+// all game prompts (dialogue writer, director, routine planner) start with this
+const GAME_PROMPT_PREFIX = '너는 픽셀 아트 방치형 게임 "팔팔마을"의 ';
 const PER_IP_PER_MINUTE = 30;
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_MODELS = ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'];

@@ -31,6 +31,7 @@ function initUI() {
     `<h2>🔄 마을 리셋</h2><p>팔팔마을을 처음부터 다시 시작할까요?</p><p><small>주민들의 성장, 관계, 연애, 기억, 비밀번호, 범죄 기록이 모두 초기화돼요.</small></p>`,
     { confirm: '리셋하고 다시 시작', onConfirm: resetGame, cancel: true }));
   $('#law-btn').addEventListener('click', showLaw);
+  $('#paper-btn').addEventListener('click', showPaper);
   $('#ai-btn').addEventListener('click', showAiSettings);
   $('#modal-close').addEventListener('click', () => { const f = UI.onConfirm; closeModal(); if (f) f(); });
   $('#modal-cancel').addEventListener('click', closeModal);
@@ -60,6 +61,8 @@ function updateUI() {
   $('#event-banner').hidden = !ev;
   if (ev) $('#event-banner').textContent = `${ev.emoji} ${ev.title} 진행 중!`;
   const kid = Sim.kid && Sim.kid.phase !== 'hunt';
+  const crisisText = Sim.crisis ? '🚨 칠칠마을과 전쟁 중! 주민들은 체육관으로 대피' : Object.keys(Sim.fires).some((id) => Sim.fires[id] > Sim.minute) ? '🔥 화재 발생! 진압 중…' : Sim.weather === 'storm' ? '⛈️ 태풍 경보' : Sim.blackout > Sim.minute ? '🔌 정전 중' : Sim.flood > Sim.minute ? '🌊 하천 범람 주의' : Sim.ufo > Sim.minute ? '🛸 운동장에 UFO!' : '';
+  if (crisisText && !ev) { $('#event-banner').hidden = false; $('#event-banner').textContent = crisisText; }
   $('#alert-banner').hidden = !kid;
 
   for (const a of Sim.agents) {
@@ -75,13 +78,14 @@ function updateUI() {
 
 function todaySchedule(a) {
   const wd = weekdayOf(Sim.minute), out = [];
-  for (const b of a.def.routine) {
+  const plan = Sim.aiPlans[dayOf(Sim.minute)] && Sim.aiPlans[dayOf(Sim.minute)][a.id];
+  for (const b of plan || a.def.routine) {
     if (!dayMatch(b.d, wd)) continue;
     if (b.if && !Sim.dayVars[b.if]) continue;
     if (b.ifNot && Sim.dayVars[b.ifNot]) continue;
     const f = resolveHour(b.f), t = resolveHour(b.t);
     if (out.some((o) => o.f === f)) continue;
-    const label = b.a ? `${ACTIVITIES[b.a].emoji} ${ACTIVITIES[b.a].label}` : '🎲 자유 시간';
+    const label = (b.a ? `${ACTIVITIES[b.a].emoji} ${ACTIVITIES[b.a].label}` : '🎲 자유 시간') + (b.note ? ` · ${b.note}` : '');
     out.push({ f, t, label });
   }
   out.sort((p, q) => p.f - q.f);
@@ -122,7 +126,8 @@ function updateDetail() {
       <button id="follow" class="${Cam.follow === a ? 'on' : ''}">${Cam.follow === a ? '📍 따라가는 중' : '📍 따라가기'}</button>
     </div>
     <div class="needs"><span>⚡ 에너지</span>${bar(a.energy, '#f2c12e')}<span>😊 기분</span>${bar(a.mood, '#3fb58a')}</div>
-    <h3>오늘의 일과 <small>${WEEKDAYS[weekdayOf(Sim.minute)]}요일</small></h3><ul class="sched">${todaySchedule(a)}</ul>
+    <h3>오늘의 일과 <small>${WEEKDAYS[weekdayOf(Sim.minute)]}요일${Sim.aiPlans[dayOf(Sim.minute)] && Sim.aiPlans[dayOf(Sim.minute)][a.id] ? ' · 🤖 AI가 짠 일과' : ''}</small></h3>
+    ${(Sim.paper[dayOf(Sim.minute)] || {}).quotes && Sim.paper[dayOf(Sim.minute)].quotes[a.id] ? `<p class="quote">💭 "${esc(Sim.paper[dayOf(Sim.minute)].quotes[a.id])}"</p>` : ''}<ul class="sched">${todaySchedule(a)}</ul>
     <h3>기록</h3><div class="stats">${stats}</div>
     <h3>스킬</h3><div class="skills">${skills}</div>
     <h3>관계</h3><div class="rels">${rels}</div>
@@ -198,7 +203,8 @@ function showAiSettings() {
       <input id="ai-key" type="password" autocomplete="off" placeholder="${s.keyHint ? `저장됨: ${esc(s.keyHint)} (바꾸려면 새로 입력)` : s.mode === 'local' ? '로컬 키 파일 사용 중 (입력하면 이 브라우저 키가 우선)' : 'sk-or-... / sk-ant-...'}"></label>
     <label class="ai-row">모델 <select id="ai-model">${modelOpts(s.provider, s.model)}</select></label>
     <label class="ai-row">AI 대화 빈도 <select id="ai-freq">${freqs}</select></label>
-    <label class="ai-row ai-check"><input id="ai-enabled" type="checkbox" ${s.enabled ? 'checked' : ''}> AI 사용</label>
+    <label class="ai-row ai-check"><input id="ai-enabled" type="checkbox" ${s.enabled ? 'checked' : ''}> AI 대화 사용</label>
+    <label class="ai-row ai-check"><input id="ai-director" type="checkbox" ${s.director ? 'checked' : ''}> AI가 매일 일과·이벤트·신문 만들기 (게임 하루 약 9회 호출)</label>
     <details><summary>고급: 서버 프록시 URL</summary>
       <label class="ai-row"><input id="ai-proxy" type="url" placeholder="https://palpal-npc.xxx.workers.dev" value="${esc(s.proxy || '')}"></label>
       <small>server/ 폴더의 Cloudflare Worker를 배포하면, 키를 서버에만 두고 친구들도 키 없이 AI NPC를 볼 수 있어요.</small></details>
@@ -211,7 +217,7 @@ function showAiSettings() {
     $('#ai-model').innerHTML = modelOpts(prov, AI_CONFIG.providers[prov].defaultModel);
   });
   const collect = () => {
-    const patch = { provider: $('#ai-provider').value, model: $('#ai-model').value, freq: $('#ai-freq').value, enabled: $('#ai-enabled').checked, proxy: $('#ai-proxy').value.trim() };
+    const patch = { provider: $('#ai-provider').value, model: $('#ai-model').value, freq: $('#ai-freq').value, enabled: $('#ai-enabled').checked, director: $('#ai-director').checked, proxy: $('#ai-proxy').value.trim() };
     const key = $('#ai-key').value.trim();
     if (key) patch.key = key;
     NpcAI.save(patch);
@@ -226,6 +232,25 @@ function showAiSettings() {
     const r = await NpcAI.test();
     out(r.ok ? `✅ 연결 성공!\n${r.msg}` : `❌ ${r.msg}`);
   });
+}
+
+function showPaper() {
+  const day = dayOf(Sim.minute), p = Sim.paper[day] || {};
+  const evs = Sim.events.filter((e) => e.title && dayOf(e.start) === day).concat(Sim.activeEvent ? [Sim.activeEvent] : [])
+    .sort((x, y) => x.start - y.start)
+    .map((e) => `<li><time>${clockStr(e.start)}–${clockStr(e.end)}</time>${e.emoji || '📌'} ${esc(e.title)}${e.desc ? `<br><small>${esc(e.desc)}</small>` : ''}</li>`).join('') || '<li>예정된 큰 일 없음</li>';
+  const people = Sim.agents.map((a) => {
+    const q = (p.quotes || {})[a.id], n = (p.notes || {})[a.id], g = (p.goals || {})[a.id];
+    if (!q && !n && !g) return '';
+    return `<li><b>${a.def.short}</b> ${q ? `"${esc(q)}"` : ''}${g ? `<br><small>🎯 ${esc(g)}</small>` : ''}${n ? `<br><small>📝 ${esc(n)}</small>` : ''}</li>`;
+  }).join('');
+  const st = window.NpcAI ? NpcAI.status() : {};
+  const head = p.headline
+    ? `<h2 class="paper-head">${esc(p.headline)}</h2><p>${esc(p.summary || '')}</p>`
+    : `<h2 class="paper-head">오늘은 조용한 팔팔마을</h2><p><small>${st.planning ? '🤖 AI가 오늘 신문과 일과를 쓰는 중이에요…' : st.configured && st.director ? 'AI 신문은 전날 오후 4시에 만들어져요.' : 'AI 일과·신문 기능이 꺼져 있어요 (🤖 AI 설정).'}</small></p>`;
+  openModal(`<div class="paper"><div class="paper-mast">📰 팔팔일보 <small>${dateStr(Sim.minute)}</small></div>${head}
+    <h3>🗓️ 오늘의 마을 일정</h3><ul class="records">${evs}</ul>
+    ${people ? `<h3>💬 주민들의 아침 한마디</h3><ul class="records">${people}</ul>` : ''}</div>`, { confirm: '닫기' });
 }
 
 function showOffline(result) {

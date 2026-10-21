@@ -148,7 +148,7 @@ button { font-family: inherit; }
 .rel { grid-template-columns: 22px 34px 110px 1fr; }
 
 .hbtns { display: flex; gap: 6px; }
-#law-btn, #ai-btn { background: #f6ecd6; color: var(--ink); border: 0; border-radius: 4px; padding: 3px 8px; font-size: 12px; }
+#law-btn, #ai-btn, #paper-btn { background: #f6ecd6; color: var(--ink); border: 0; border-radius: 4px; padding: 3px 8px; font-size: 12px; }
 #reset { font-size: 12px; }
 #modal .box { max-height: 86vh; overflow: auto; }
 #modal h3 { font-size: 14px; margin: 14px 0 6px; }
@@ -170,3 +170,11 @@ button { font-family: inherit; }
 .ai-btns #ai-test { background: var(--accent); color: #fff; }
 .ai-out { white-space: pre-wrap; background: #fffaf0; border: 1px dashed #d9b98a; border-radius: 4px; padding: 6px; font-size: 12px; font-family: inherit; }
 details summary { font-size: 12px; margin-top: 8px; }
+
+.paper-mast { font-size: 20px; font-weight: bold; border-bottom: 3px double var(--ink); padding-bottom: 4px; margin-bottom: 8px; }
+.paper-mast small { font-size: 12px; color: var(--ink-2); font-weight: normal; margin-left: 6px; }
+.paper-head { font-size: 19px; line-height: 1.35; margin: 6px 0; }
+#detail .quote { margin: 4px 0 0; font-size: 12px; color: var(--ink-2); }
+#panel header h1 { white-space: nowrap; font-size: 18px; }
+.hbtns { flex-wrap: nowrap; gap: 4px; }
+.hbtns button { font-size: 11px; padding: 3px 6px; white-space: nowrap; }
