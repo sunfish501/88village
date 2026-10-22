@@ -36,7 +36,7 @@ const OPEN_HOURS = {
   studycafe: () => true,
   police: () => true,
   gym: (wd, h) => h >= 6 && h < 22.5,
-  hospital: (wd, h) => h >= 9 && h < 19,
+  hospital: (wd, h) => h >= 8 && h < 19,
   school: (wd, h) => wd <= 4 && h >= 6.5 && h < 17,
 };
 
@@ -75,6 +75,8 @@ const ACTIVITIES = {
   police_work:  { label: '파출소 업무', emoji: '🗂️', loc: 'police', inside: true, busy: true, xp: { work: 0.5 } },
   patrol:       { label: '동네 순찰', emoji: '👮', route: ['plaza', 'wander', 'school_front', 'wander'], busy: true, xp: { body: 0.5 } },
   school_patrol:{ label: '팔팔고 하교 지도', emoji: '🚸', loc: 'school_front', busy: true, xp: { social: 0.3 } },
+  work_hospital:{ label: '팔팔팔병원 진료', emoji: '🩺', loc: 'hospital', inside: true, busy: true, xp: { mind: 0.6, work: 0.6, social: 0.2 } },
+  house_call:   { label: '외진 도는 중', emoji: '🩺', route: ['doorstep', 'wander', 'doorstep', 'plaza', 'doorstep'], busy: true, xp: { work: 0.5, social: 0.4 } },
   cupramen:     { label: '팔팔25 컵라면 사기', emoji: '🍜', loc: 'store', inside: true, errand: true, dur: [8, 12], energy: 0.1, stat: 'cupramen' },
 
   // free time
@@ -111,6 +113,9 @@ const ACTIVITIES = {
   transported:  { label: '구급차로 이송 중', emoji: '🚑', busy: true, sticky: true },
   patrol_car:   { label: '경찰차 출동', emoji: '🚓', busy: true, sticky: true },
 
+  // doctor (doctor.js)
+  rush_heal:    { label: '환자에게 달려가는 중!', emoji: '🚨', busy: true, sticky: true, run: true },
+
   // crises (director.js)
   shelter:      { label: '체육관으로 대피 중', emoji: '🛡️', loc: 'gym', inside: true, busy: true, sticky: true, mood: -0.02 },
   defend:       { label: '마을 입구 방어전', emoji: '⚔️', loc: 'warfront', roam: true, busy: true, sticky: true, energy: -0.05, xp: { body: 0.6 } },
@@ -136,7 +141,7 @@ const ACTIVITIES = {
   date:         { label: '데이트 중', emoji: '💕', loc: 'date', dur: [60, 90], mood: 0.25, xp: { charm: 0.6, social: 0.3 }, busy: true, sticky: true, stat: 'dates' },
 };
 
-// routine blocks: d = all|weekday|weekend|mon|notMon, f/t = hours (t may be a dayVar key),
+// routine blocks: d = all|weekday|weekend|mon|notMon|mwf, f/t = hours (t may be a dayVar key),
 // a = activity, p = {activity: weight}, if/ifNot = dayVar flag. First match wins; no match => sleep at home.
 const FREE = { wait_bus: 0.5, plaza_walk: 2, fountain: 1, bench_rest: 1, river_walk: 2, cafe_visit: 2, restaurant_meal: 2, store_shop: 1, gym_visit: 1, visit: 2, home_relax: 2 };
 
@@ -281,12 +286,32 @@ const CHARACTERS = [
     flirtLines: ['혹시… 남자친구 있어요? 😳', '근무 끝나고 컵라면 같이 먹을래요?', '오늘 진짜 예쁘시네요! (경례)', '제 마음도 체포해 주실래요? 😏'],
     replies: ['우와 진짜요?!', '대박! 😆', '헉 몰랐어요!', '오오오!'],
   },
+  {
+    id: 'lee_yujin', name: '이유진', short: '유진', gender: 'F', age: 35, role: '팔팔팔병원 의사', traits: '밝음 · 일할 땐 진지모드 · 환자 우선',
+    home: 'h_yujin', extro: 1.2, doctor: true,
+    morality: 1.0, fav: { act: 'river_walk', line: '하천 산책 30분이면 건강검진보다 나아요! ㅎㅎ' }, items: ['청진기', '비상 구급상자'],
+    skills: { mind: 5, work: 4, social: 3, body: 2, cook: 1, charm: 3 }, talent: { mind: 1.2, work: 1.2 },
+    routine: [
+      { d: 'weekday', f: 7.4, t: 8, a: 'breakfast' },
+      { d: 'mwf', f: 8, t: 13, a: 'work_hospital' },
+      { d: 'mwf', f: 13, t: 16, a: 'house_call' },
+      { d: 'mwf', f: 16, t: 19, a: 'work_hospital' },
+      { d: 'weekday', f: 8, t: 19, a: 'work_hospital' },
+      { d: 'weekday', f: 19, t: 23, p: { home_relax: 3, restaurant_meal: 2, plaza_walk: 2, river_walk: 1, store_shop: 1, visit: 1 } },
+      { d: 'weekend', f: 9, t: 23.5, p: FREE },
+    ],
+    lines: ['안녕하세요~ 오늘 컨디션 어때요? ㅎㅎ', '물 많이 마시고 있죠?!', '오늘 날씨 완전 산책각이다!', '저 오늘 쉬는 날이에요~ 😆', '아프면 참지 말고 바로 와요!'],
+    seriousLines: ['잠깐만요. 어디 다친 데 없어요?', '안색이 안 좋은데… 맥 좀 짚어볼게요.', '무리하지 마세요. 진짜로요.', '거기 앉아 봐요. 바로 볼게요.'],
+    replies: ['ㅎㅎ 그쵸?', '와 좋다!', '오~ 다행이네요!', '헐 진짜요?'],
+    seriousReplies: ['…증상은 언제부터였어요?', '알겠어요. 제가 확인할게요.', '그건 꼭 진료받아야 해요.'],
+  },
 ];
 
 const INITIAL_RELATIONS = {
   'han_gayun|hong_uijun': 35, 'ha_serin|gwak_hyunji': 30, 'jo_beomgi|hong_uijun': 30, 'jo_ijun|hong_uijun': 25,
   'han_gayun|han_seunghwa': 15, 'han_gayun|jung_uigyeom': 20, 'gwak_hyunji|jo_beomgi': 20, 'ha_serin|hong_uijun': 25,
   'gwak_hyunji|hong_uijun': 25, 'han_seunghwa|hong_uijun': 20, 'jung_uigyeom|hong_uijun': 25,
+  'gwak_hyunji|lee_yujin': 25, 'hong_uijun|lee_yujin': 25, 'jung_uigyeom|lee_yujin': 15, 'jo_ijun|lee_yujin': 15,
 };
 
 const STAT_LABELS = {
@@ -294,7 +319,7 @@ const STAT_LABELS = {
   beer: '🍺 퇴근 맥주', cupramen: '🍜 컵라면', donkatsu: '🍱 돈까스', chicken: '🍗 닭가슴살', overtime: '😩 야근',
   snack: '🍗 야식', flirts: '😏 플러팅', confess: '💌 고백', dates: '💕 데이트', hospital: '🏥 병원', store: '🍙 편의점 끼니',
   coffee: '☕ 출근 커피', promises: '🤝 약속 지킴', promiseBroken: '😤 약속 펑크', crimes: '⚖️ 범죄', thefts: '🫳 절도', trespass: '🚪 무단출입',
-  essays: '📝 반성문', bus_trips: '🚌 시내 나들이', abducted: '🛸 UFO 납치', tourists: '🧳 관광객 안내', accidents: '💥 교통사고', dispatches: '🚓 사고 출동', war: '⚔️ 전쟁 겪음', injured: '🩹 부상', fires: '🧯 화재 진압', service: '🧹 사회봉사', jailed: '🔒 유치장', cheats: '💔 바람', breakups: '💔 이별', pwShared: '🔑 비번 알려줌',
+  essays: '📝 반성문', bus_trips: '🚌 시내 나들이', abducted: '🛸 UFO 납치', tourists: '🧳 관광객 안내', accidents: '💥 교통사고', dispatches: '🚓 사고 출동', war: '⚔️ 전쟁 겪음', injured: '🩹 부상', fires: '🧯 화재 진압', service: '🧹 사회봉사', jailed: '🔒 유치장', cheats: '💔 바람', breakups: '💔 이별', pwShared: '🔑 비번 알려줌', treated: '🩺 환자 치료', housecalls: '🏘️ 외진',
 };
 
 const GREETINGS_DAY = ['안녕하세요!', '오, 반가워요!', '어디 가세요?', '날씨 좋네요~'];

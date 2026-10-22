@@ -7,7 +7,7 @@ const Law = {
   active: null, // case currently handled by 정의겸
 };
 
-const WORKPLACE_OF = { han_gayun: 'cafe', jo_beomgi: 'restaurant', hong_uijun: 'store', jung_uigyeom: 'police' };
+const WORKPLACE_OF = { han_gayun: 'cafe', jo_beomgi: 'restaurant', hong_uijun: 'store', jung_uigyeom: 'police', lee_yujin: 'hospital' };
 const newPw = () => String(randInt(0, 9999)).padStart(4, '0');
 
 function lawInit() {

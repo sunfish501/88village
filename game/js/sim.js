@@ -55,6 +55,7 @@ function dayMatch(d, wd) {
     case 'weekend': return wd >= 5;
     case 'mon': return wd === 0;
     case 'notMon': return wd !== 0;
+    case 'mwf': return wd === 0 || wd === 2 || wd === 4;
     default: return true;
   }
 }
@@ -105,7 +106,7 @@ class Agent {
     if (this.chat) return `💬 ${josa(this.chat.other.def.short, '과/와')} 대화 중`;
     if (!this.act) return '🤔 고민 중';
     const a = this.act.def;
-    if (this.state === 'walking' && !['kidnapped', 'arrested', 'run', 'evening_run', 'patrol', 'search', 'rescue', 'escort', 'kidnap_home', 'kidnap_hunt', 'arrest_go', 'community_service', 'defend', 'evacuate', 'firefight'].includes(this.act.key))
+    if (this.state === 'walking' && !['kidnapped', 'arrested', 'run', 'evening_run', 'patrol', 'search', 'rescue', 'escort', 'kidnap_home', 'kidnap_hunt', 'arrest_go', 'community_service', 'defend', 'evacuate', 'firefight', 'house_call', 'rush_heal'].includes(this.act.key))
       return `🚶 ${a.label} 하러 가는 중`;
     if (this.act.key === 'date' && this.act.partner) return `💕 ${josa(this.act.partner.def.short, '과/와')} 데이트 중`;
     if (this.act.key === 'promise_meet' && this.act.partner) return `🤝 ${josa(this.act.partner.def.short, '과/와')} 약속 지키는 중`;
@@ -327,7 +328,7 @@ class Agent {
   }
 
   move(dt) {
-    let steps = WALK_TILES_PER_MIN * dt * TILE;
+    let steps = WALK_TILES_PER_MIN * dt * TILE * (this.act && this.act.def.run ? 2.2 : 1);
     while (steps > 0 && this.path.length) {
       const [nx, ny] = this.path[0];
       const gx = nx * TILE + 8, gy = ny * TILE + 8;
@@ -576,10 +577,12 @@ function greeting() {
   return pick(GREETINGS_DAY);
 }
 function lineOf(a, b) {
+  if (typeof doctorSerious === 'function' && doctorSerious(a, b)) return pick(a.def.seriousLines);
   const close = a.def.chattyWhenClose && (a.rel[b.id] || 0) >= 40;
   return pick(close ? a.def.closeLines : a.def.lines);
 }
 function replyOf(a, b) {
+  if (typeof doctorSerious === 'function' && doctorSerious(a, b)) return pick(a.def.seriousReplies);
   const close = a.def.chattyWhenClose && (a.rel[b.id] || 0) >= 40;
   return pick(close ? a.def.closeReplies : a.def.replies);
 }
@@ -965,6 +968,7 @@ function simTick(realDt) {
     tickCrisis(step);
     tickDirector();
     tickTourists(step);
+    tickDoctor(step);
     for (const a of Sim.agents) a.update(step);
     tryChats();
     insideSocial(step);

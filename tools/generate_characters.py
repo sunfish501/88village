@@ -150,6 +150,20 @@ CHARACTERS = [
         "living_area": "팔팔마을:팔팔파출소",
         "daily_plan_req": "정의겸은 하교 시간쯤 팔팔고 앞에서 순찰한다.",
     },
+    {
+        "id": "lee_yujin", "name": "이유진", "en": "Lee Yujin", "gender": "F", "age": 35,
+        "skin": "#f4d0b4", "hair": "#3a2a24", "hair_style": "bob", "eye": "#2a1e18",
+        "top": "#6fb3c4", "sleeve": "#f6f6f2", "pants": "#4a6a78", "shoes": "#f2f2f2",
+        "accent": {"type": "jacket", "color": "#f6f6f2"},
+        "extras": ["lashes", "smile"],
+        "role": "팔팔팔병원 의사",
+        "innate": "밝음, 일할 땐 진지모드, 환자 우선",
+        "learned": "이유진은 팔팔팔병원의 35살 의사다. 평소엔 밝고 장난도 잘 치지만, 일하거나 다친 사람을 보면 바로 진지해져 일에 몰두한다.",
+        "currently": "이유진은 월·수·금요일마다 마을을 돌며 외진을 나가고, 아픈 사람을 보면 바로 달려가 치료한다.",
+        "lifestyle": "이유진은 아침 8시에 병원으로 출근해 저녁 7시에 퇴근한다. 월·수·금 오후엔 마을로 외진을 나간다.",
+        "living_area": "팔팔마을:유진네 집",
+        "daily_plan_req": "이유진은 낮에 팔팔팔병원에서 진료하고, 월·수·금엔 외진을 돈다.",
+    },
 ]
 
 
@@ -734,7 +748,7 @@ def build_preview(sheets):
     S = 4
     cw, chh = F * 3 * S + 40, F * 4 * S + 110
     cols = 4
-    img = Image.new("RGBA", (cw * cols, chh * 2), hexc("#2b2f3a"))
+    img = Image.new("RGBA", (cw * cols, chh * ((len(sheets) + cols - 1) // cols)), hexc("#2b2f3a"))
     d = ImageDraw.Draw(img)
     f1, f2 = font(22), font(14)
     for i, (ch, sheet) in enumerate(sheets):

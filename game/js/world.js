@@ -19,7 +19,7 @@ const streamC = (x) => 57 + Math.round(1.2 * Math.sin(x / 9));
 // Buildings & props layout
 // ---------------------------------------------------------------------------
 const BUILDINGS = [
-  // homes (8)
+  // homes (9)
   { id: 'h_gayun', kind: 'house', x: 4, y: 6, w: 7, h: 7, top: 0, name: '가윤네', owner: 'han_gayun', roof: '#c8673a', wall: '#f3ead8' },
   { id: 'h_serin', kind: 'villa', x: 13, y: 5, w: 7, h: 8, top: 0, name: '세린빌라', owner: 'ha_serin', brick: '#c2a27a' },
   { id: 'h_seunghwa', kind: 'villa', x: 22, y: 5, w: 7, h: 8, top: 0, name: '승화빌라', owner: 'han_seunghwa', brick: '#9c5a3c' },
@@ -27,6 +27,7 @@ const BUILDINGS = [
   { id: 'h_ijun', kind: 'hanok', x: 54, y: 6, w: 9, h: 7, top: 6, name: '이준네 한옥', owner: 'jo_ijun' },
   { id: 'h_uijun', kind: 'house', x: 65, y: 6, w: 7, h: 7, top: 0, name: '의준네', owner: 'hong_uijun', roof: '#3f6fa8', wall: '#efe2c8' },
   { id: 'h_hyunji', kind: 'villa', x: 74, y: 5, w: 7, h: 8, top: 0, name: '현지빌라', owner: 'gwak_hyunji', brick: '#b5563b' },
+  { id: 'h_yujin', kind: 'house', x: 71, y: 20, w: 7, h: 7, top: 0, name: '유진네', owner: 'lee_yujin', roof: '#c74f6a', wall: '#f6efe6' },
   { id: 'h_uigyeom', kind: 'house', x: 84, y: 6, w: 7, h: 7, top: 0, name: '의겸네(빈집)', owner: 'jung_uigyeom', roof: '#4f8a5b', wall: '#ece6da' },
   // town
   { id: 'cafe', kind: 'cafe', x: 4, y: 21, w: 7, h: 6, top: 0, name: '팔팔카페' },
@@ -160,6 +161,7 @@ function buildWorld() {
   S.busstop = [{ x: 36, y: 34, face: 'up' }, { x: 37, y: 34, face: 'up' }, { x: 38, y: 34, face: 'up' }, { x: 35, y: 34, face: 'up' }];
   S.platform = [];
   for (let x = PLATFORM.x0; x <= PLATFORM.x1; x++) S.platform.push({ x, y: PLATFORM.y, face: 'down' });
+  S.doorstep = BUILDINGS.filter((b) => b.owner).map((b) => ({ x: b.door.x, y: b.door.y + 1, face: 'up' }));
   S.stall = [{ x: 76, y: 41, face: 'up' }, { x: 77, y: 41, face: 'up' }, { x: 78, y: 41, face: 'up' }];
   S.school_front = [];
   for (let x = 58; x <= 64; x++) for (let y = 74; y <= 75; y++) S.school_front.push({ x, y, face: 'up' });
